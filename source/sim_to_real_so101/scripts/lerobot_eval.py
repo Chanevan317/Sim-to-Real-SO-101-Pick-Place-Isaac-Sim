@@ -1,74 +1,44 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""
+Isaac Lab SO-101 Eval Script — ACT policy via remote socket server.
+
+The ACT policy runs in a separate `lerobot` conda environment (see
+policy_server.py) and communicates with this script over a local socket,
+so this environment (env_isaaclab) never needs to import lerobot.
+
+.. code-block:: bash
+
+    # terminal 1 (lerobot env):
+    conda activate lerobot
+    python policy_server.py
+
+    # terminal 2 (env_isaaclab env):
+    conda activate env_isaaclab
+    ./isaaclab.sh -p eval_act_so101.py --task <task_name> --num_episodes 10
+"""
+
 import argparse
-import json
 import random
 from tqdm import tqdm
 
 from isaaclab.app import AppLauncher
 
-# add argparse arguments
-parser = argparse.ArgumentParser(description="Isaac Lab SO-101 Eval Client (remote GR00T inference server).")
-parser.add_argument(
-    "--disable_fabric",
-    action="store_true",
-    default=False,
-    help="Disable fabric and use USD I/O operations.",
-)
-parser.add_argument(
-    "--num_envs", type=int, default=None, help="Number of environments to simulate."
-)
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
-parser.add_argument("--seed", type=int, default=1984, help="Environment seed")
-parser.add_argument("--num_episodes", type=int, default=10, help="Number of episodes to evaluate")
-parser.add_argument(
-    "--rename_map",
-    type=str,
-    required=False,
-    default=None,
-    help=(
-        'JSON mapping for renaming camera keys to match policy/feature config: key is simulation feature name, value is policy feature name '
-        'e.g. \'{"sim_name1": "policy_name1", "sim_name2": "policy_name2"}\'. '
-    ),
-)
-parser.add_argument("--policy_host", type=str, default="localhost", help="GR00T policy server host")
-parser.add_argument("--policy_port", type=int, default=5555, help="GR00T policy server port")
-parser.add_argument("--action_horizon", type=int, default=16, help="Number of action steps to execute per server query")
-parser.add_argument(
-    "--lang_instruction",
-    type=str,
-    default="Pick up the vial and place it in the rack",
-    help="Language instruction for the policy",
-)
-parser.add_argument("--rerun", action="store_true", default=False, help="Enable Rerun visualization")
-
-# append AppLauncher cli args
+parser = argparse.ArgumentParser(description="Isaac Lab SO-101 Eval Client (remote ACT policy server).")
+parser.add_argument("--disable_fabric", action="store_true", default=False)
+parser.add_argument("--num_envs", type=int, default=None)
+parser.add_argument("--task", type=str, default=None)
+parser.add_argument("--seed", type=int, default=1984)
+parser.add_argument("--num_episodes", type=int, default=5)
+parser.add_argument("--policy_host", type=str, default="127.0.0.1")
+parser.add_argument("--policy_port", type=int, default=9999)
 AppLauncher.add_app_launcher_args(parser)
-# parse the arguments
 args_cli = parser.parse_args()
 
-# always enable cameras to record video
 args_cli.enable_cameras = True
 
-
-# launch omniverse app
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 """Rest everything follows."""
-
 
 import gymnasium as gym
 import numpy as np
@@ -78,26 +48,55 @@ import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 
 import sim_to_real_so101.tasks  # noqa: F401
-from sim_to_real_so101.utils.keyboard import KeyboardControl
-from sim_to_real_so101.utils.lerobot_interface import (
-    LeRobotSO101Interface,
-    GR00TRemotePolicy,
-)
+
+from sim_to_real_so101.utils.policy_client import PolicyClient
+
+
+# --- Same real-degree conversion used in teleop_so101.py, so the policy
+# sees the same input space it was trained on. ---
+JOINT_MINS_DEG = [-110.0, -100.0, -100.0, -95.0, -160.0, -10.0]
+JOINT_MAXS_DEG = [110.0, 100.0, 90.0, 95.0, 160.0, 100.0]
+
+
+def make_degree_converters(device):
+    joint_mins = torch.tensor(JOINT_MINS_DEG, device=device)
+    joint_maxs = torch.tensor(JOINT_MAXS_DEG, device=device)
+
+    def sim_radians_to_real_degrees(rad_tensor):
+        deg = rad_tensor * 180.0 / torch.pi
+        normalized = (deg - joint_mins) / (joint_maxs - joint_mins)
+        raw_deg = torch.zeros_like(normalized)
+        raw_deg[:-1] = normalized[:-1] * 200.0 - 100.0
+        raw_deg[-1] = normalized[-1] * 100.0
+        return raw_deg
+
+    def real_degrees_to_sim_radians(raw_deg_tensor):
+        normalized = torch.zeros_like(raw_deg_tensor)
+        normalized[:-1] = (raw_deg_tensor[:-1] + 100.0) / 200.0
+        normalized[-1] = raw_deg_tensor[-1] / 100.0
+        deg = normalized * (joint_maxs - joint_mins) + joint_mins
+        return deg * torch.pi / 180.0
+
+    return sim_radians_to_real_degrees, real_degrees_to_sim_radians
+
+
+def prep_image(img_hwc_uint8: np.ndarray) -> np.ndarray:
+    """(H, W, 3) uint8 -> (3, H, W) float32 in [0, 1], matching how the
+    training dataset's HWC uint8 frames were converted before being fed
+    to the model."""
+    img = img_hwc_uint8.astype(np.float32) / 255.0
+    return np.transpose(img, (2, 0, 1))
 
 
 def main():
-    keyboard_control = KeyboardControl()
-
-    # parse configuration
     env_cfg = parse_env_cfg(
         args_cli.task,
         device=args_cli.device,
         num_envs=args_cli.num_envs,
-        use_fabric=not args_cli.disable_fabric
+        use_fabric=not args_cli.disable_fabric,
     )
     env_cfg.seed = args_cli.seed
 
-    # Seed all RNGs for reproducible episode resets
     random.seed(args_cli.seed)
     np.random.seed(args_cli.seed)
     torch.manual_seed(args_cli.seed)
@@ -105,56 +104,27 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)
 
-    # print info (this is vectorized environment)
     print(f"[INFO]: Gym observation space: {env.observation_space}")
     print(f"[INFO]: Gym action space: {env.action_space}")
-    print(f"[INFO]: Click 'R' to reset the world")
 
-    # cameras
+    sim_radians_to_real_degrees, real_degrees_to_sim_radians = make_degree_converters(env.unwrapped.device)
+
     cameras = {}
     for obj in env.unwrapped.scene.keys():
         if obj.startswith("camera_"):
-            camera_cfg = getattr(env.unwrapped.scene.cfg, obj)
-            cameras[obj.replace("camera_", "")] = {
-                "height": camera_cfg.height,
-                "width": camera_cfg.width,
-            }
-            print(f"[INFO]: Found Camera: {obj.replace('camera_', '')}")
+            cam_name = obj.replace("camera_", "")
+            cameras[cam_name] = True
+            print(f"[INFO]: Found Camera: {cam_name}")
     if len(cameras) == 0:
-        print(f"[Info]: No cameras found - videos will not be recorded")
+        print("[INFO]: No cameras found - policy requires ego/external_D455 cameras")
 
-    # lerobot interface (provides sim↔real coordinate transforms)
-    rename_map = json.loads(args_cli.rename_map) if args_cli.rename_map else None
-    robot_iface = LeRobotSO101Interface(
-        device=env.unwrapped.device,
-        port=None,
-        id="leader_arm_1",
-        cameras=cameras,
-        fps=30,
-        kind="follower",
-        rename_map=rename_map,
-    )
-    print(f"[INFO]: Initializing device with Rerun visualization: {args_cli.rerun}")
-    robot_iface.init_device(visualize=args_cli.rerun)
+    # --- connect to the ACT policy server (running in the `lerobot` env) ---
+    policy = PolicyClient(host=args_cli.policy_host, port=args_cli.policy_port)
 
-    # remote GR00T policy
-    policy = GR00TRemotePolicy(
-        robot_iface=robot_iface,
-        host=args_cli.policy_host,
-        port=args_cli.policy_port,
-        action_horizon=args_cli.action_horizon,
-        lang_instruction=args_cli.lang_instruction,
-    )
-    policy.connect()
-
-    # reset environment
     obs, _ = env.reset()
-    policy.reset()
 
-    # simulate environment
     actions = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
     initial_action = torch.tensor(
         [-0.2736, -0.6109, -0.0745, 1.5148, -1.6034, -0.1465],
@@ -165,11 +135,9 @@ def main():
     num_episodes = 0
     num_successes = 0
     success_rate = 0.0
-
     pbar = None
 
     while simulation_app.is_running():
-        # run everything in inference mode
         with torch.inference_mode():
 
             if step == 0:
@@ -180,22 +148,30 @@ def main():
                     bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]'
                 )
 
-            if step < 10:  # warmup, not critical but helps
+            if step < 10:  # warmup, matches your GR00T eval script
                 actions[:] = initial_action
-
             else:
-                joint_positions = obs["policy"]["joint_pos_obs"][0].clone()
-                actions[:] = policy.get_action(joint_positions, obs["visual"], log=True)
+                joint_pos_sim_rad = obs["policy"]["joint_pos_obs"][0]
+                state_real_deg = sim_radians_to_real_degrees(joint_pos_sim_rad).cpu().numpy()
+
+                visual_obs = obs["visual"]
+                image_ego = prep_image(visual_obs["rgb_ego"][0].cpu().numpy().astype(np.uint8))
+                image_external = prep_image(visual_obs["rgb_external_D455"][0].cpu().numpy().astype(np.uint8))
+
+                action_real_deg = policy.get_action(state_real_deg, image_ego, image_external)
+                # print(f"[CLIENT] step={step} state_real_deg={state_real_deg} "
+                #     f"action_real_deg={action_real_deg}")
+
+                action_real_deg_t = torch.tensor(action_real_deg, device=env.unwrapped.device, dtype=torch.float32)
+                actions[:] = real_degrees_to_sim_radians(action_real_deg_t)
+                # print(f"[CLIENT] step={step} sim_actions_rad={actions[0].cpu().numpy()}")
 
             obs, rewards, terminated, truncated, info = env.step(actions)
-
             step += 1
 
-            # Update progress bar
             if pbar is not None:
                 pbar.update(1)
 
-            # Check for episode termination
             is_terminated = terminated.item() if terminated.numel() == 1 else terminated.any().item()
             is_truncated = truncated.item() if truncated.numel() == 1 else truncated.any().item()
 
@@ -205,34 +181,15 @@ def main():
                     pbar = None
 
                 num_episodes += 1
-
                 if is_terminated and not is_truncated:
                     num_successes += 1
-
                 success_rate = (num_successes / num_episodes) * 100
 
-                # Reset for next episode
                 obs, _ = env.reset()
-                policy.reset()
-                step = 0
-
-                continue
-
-            # Manual reset with 'R' key
-            if keyboard_control.reset_world:
-                keyboard_control.reset_world = False
-                if pbar is not None:
-                    pbar.close()
-                    pbar = None
-
-                print(f"[MANUAL RESET] Episode interrupted at step {step}")
-                obs, _ = env.reset()
-                policy.reset()
                 step = 0
                 continue
 
             if num_episodes >= args_cli.num_episodes:
-                # Close progress bar if still open
                 if pbar is not None:
                     pbar.close()
                     pbar = None
@@ -245,10 +202,7 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
-
     while True:
         simulation_app.update()
-
     simulation_app.close()

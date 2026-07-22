@@ -181,7 +181,7 @@ def build_leader_arm(args_cli):
         2: {"offset": 0.0,  "direction": 1},   # Pitch
         3: {"offset": 0.0,  "direction": 1},   # Elbow
         4: {"offset": 0.0,  "direction": 1},   # Wrist_Pitch
-        5: {"offset": 90.0, "direction": -1},  # Wrist_Roll (Flipped to -1 if roll was also mirrored)
+        5: {"offset": 180.0, "direction": 1},  # Wrist_Roll
         6: {"offset": 0.0,  "direction": 1},   # Jaw / Gripper
     }
 
@@ -189,6 +189,31 @@ def build_leader_arm(args_cli):
     ADDR_STS_PRESENT_POSITION = 56
 
     class LeaderArmReader:
+        # def read_positions_deg(self):
+        #     raw_degrees = []
+        #     for motor_id in motor_ids:
+        #         pos, comm_result, error = packet_handler.read2ByteTxRx(
+        #             port_handler, motor_id, ADDR_STS_PRESENT_POSITION
+        #         )
+
+        #         if comm_result == COMM_SUCCESS:
+        #             # 1. Convert raw 12-bit encoder ticks to raw center-offset degrees
+        #             raw_deg = (pos / 4096.0) * 360.0 - 180.0
+
+        #             # 2. Apply LeRobot Calibration: (Raw Angle - Homing Offset) * Direction
+        #             cfg = CALIBRATION[motor_id]
+        #             calibrated_deg = (raw_deg - cfg["offset"]) * cfg["direction"]
+
+        #             raw_degrees.append(calibrated_deg)
+        #         else:
+        #             raw_degrees.append(0.0)
+
+        #     return np.array(raw_degrees, dtype=np.float32)
+
+        def __init__(self):
+            self._last_raw_deg_wrist_roll = None
+            self._unwrap_offset_wrist_roll = 0.0
+
         def read_positions_deg(self):
             raw_degrees = []
             for motor_id in motor_ids:
@@ -197,13 +222,22 @@ def build_leader_arm(args_cli):
                 )
 
                 if comm_result == COMM_SUCCESS:
-                    # 1. Convert raw 12-bit encoder ticks to raw center-offset degrees
                     raw_deg = (pos / 4096.0) * 360.0 - 180.0
 
-                    # 2. Apply LeRobot Calibration: (Raw Angle - Homing Offset) * Direction
+                    if motor_id == 5:
+                        # Wrist_Roll only: unwrap the -180/+180 encoder seam.
+                        last = self._last_raw_deg_wrist_roll
+                        if last is not None:
+                            delta = raw_deg - last
+                            if delta > 180.0:
+                                self._unwrap_offset_wrist_roll -= 360.0
+                            elif delta < -180.0:
+                                self._unwrap_offset_wrist_roll += 360.0
+                        self._last_raw_deg_wrist_roll = raw_deg
+                        raw_deg = raw_deg + self._unwrap_offset_wrist_roll
+
                     cfg = CALIBRATION[motor_id]
                     calibrated_deg = (raw_deg - cfg["offset"]) * cfg["direction"]
-
                     raw_degrees.append(calibrated_deg)
                 else:
                     raw_degrees.append(0.0)
