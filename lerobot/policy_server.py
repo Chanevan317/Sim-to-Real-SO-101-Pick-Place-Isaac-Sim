@@ -1,3 +1,4 @@
+import argparse
 import socket
 import pickle
 import struct
@@ -6,8 +7,6 @@ import numpy as np
 from lerobot.policies.act.modeling_act import ACTPolicy
 from lerobot.processor import PolicyProcessorPipeline
 
-CHECKPOINT_PATH = "train/outputs/so101_act/checkpoints/030000/pretrained_model"
-HOST, PORT = "127.0.0.1", 9999
 
 def recv_msg(conn):
     raw_len = recvall(conn, 4)
@@ -33,24 +32,38 @@ def encode_ndarray(arr: np.ndarray) -> bytes:
     header = struct.pack(">I", arr.ndim) + struct.pack(f">{arr.ndim}I", *arr.shape)
     return header + arr.tobytes()
 
+
 def main():
-    policy = ACTPolicy.from_pretrained(CHECKPOINT_PATH)
+    parser = argparse.ArgumentParser(description="ACT policy inference server.")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        required=True,
+        help="Path to a pretrained_model dir, e.g. "
+             "train/outputs/so101_act/checkpoints/100000/pretrained_model",
+    )
+    parser.add_argument("--host", type=str, default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=9999)
+    args = parser.parse_args()
+
+    policy = ACTPolicy.from_pretrained(args.checkpoint)
     policy.eval()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     policy.to(device)
 
     preprocessor = PolicyProcessorPipeline.from_pretrained(
-        CHECKPOINT_PATH, config_filename="policy_preprocessor.json"
+        args.checkpoint, config_filename="policy_preprocessor.json"
     )
     postprocessor = PolicyProcessorPipeline.from_pretrained(
-        CHECKPOINT_PATH, config_filename="policy_postprocessor.json"
+        args.checkpoint, config_filename="policy_postprocessor.json"
     )
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((HOST, PORT))
+    server.bind((args.host, args.port))
     server.listen(1)
-    print(f"Policy server listening on {HOST}:{PORT}")
+    print(f"Policy server listening on {args.host}:{args.port}")
+    print(f"Loaded checkpoint: {args.checkpoint}")
 
     conn, addr = server.accept()
     print(f"Connected: {addr}")
@@ -72,23 +85,12 @@ def main():
                 "observation.images.external_D455": torch.from_numpy(batch["image_external"]).float().unsqueeze(0).to(device),
             }
 
-            # print("preprocessor steps:", preprocessor.steps)
-            # print("pre-preprocessor image stats:", torch_batch["observation.images.ego"].min().item(),
-            #     torch_batch["observation.images.ego"].max().item())
-            
             processed_batch = preprocessor(torch_batch)
-            
-            # print("post-preprocessor image stats:", processed_batch["observation.images.ego"].min().item(),
-            #     processed_batch["observation.images.ego"].max().item())
-            # print("preprocessor output keys:", processed_batch.keys())
-
             action = policy.select_action(processed_batch)
             action = postprocessor({"action": action})
 
-            # print("postprocessor output type:", type(action))
             if isinstance(action, dict):
-                # print("postprocessor output keys:", action.keys())
-                action = action["action"]  # or whatever key it actually returns
+                action = action["action"]
 
             action_np = action.squeeze(0).cpu().numpy()
 
@@ -98,6 +100,7 @@ def main():
 
     conn.close()
     server.close()
+
 
 if __name__ == "__main__":
     main()

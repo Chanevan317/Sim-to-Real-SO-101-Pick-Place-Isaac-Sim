@@ -181,7 +181,7 @@ def build_leader_arm(args_cli):
         2: {"offset": 0.0,  "direction": 1},   # Pitch
         3: {"offset": 0.0,  "direction": 1},   # Elbow
         4: {"offset": 0.0,  "direction": 1},   # Wrist_Pitch
-        5: {"offset": 180.0, "direction": 1},  # Wrist_Roll
+        5: {"offset": 0.0,  "direction": 1},   # Wrist_Roll
         6: {"offset": 0.0,  "direction": 1},   # Jaw / Gripper
     }
 
@@ -296,7 +296,7 @@ def main():
                 f"W_Roll: {leader_deg[4]:6.1f}° | "
                 f"Jaw: {leader_deg[5]:6.1f}°"
             )
-            print(f"\r[Leader Telemetry] {telemetry_str}", end="", flush=True)
+            # print(f"\r[Leader Telemetry] {telemetry_str}", end="", flush=True)
 
             leader_deg_t = torch.tensor(leader_deg, device=env.unwrapped.device)
             joint_targets_rad = real_degrees_to_sim_radians(leader_deg_t)

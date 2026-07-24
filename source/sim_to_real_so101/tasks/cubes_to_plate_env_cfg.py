@@ -198,14 +198,29 @@ class CubesToPlateObservationsCfg(TaskObservationsCfg):
             },
         )
 
+        # cube_placed = ObsTerm(
+        #     func=cube_placed_on_plate,
+        #     params={
+        #         "contact_sensor_cfg": SceneEntityCfg("contact_grasp"),
+        #         "cubes": ["cube_1"],
+        #         "plate_name": "plate_left",
+        #         "warmup_steps": 30,
+        #         "force_threshold": 2,  # N
+        #         # Plate local dimensions (from plate.usda base mesh extent, centered on origin)
+        #         "plate_local_x_min": -0.1,
+        #         "plate_local_x_max": 0.1,
+        #         "plate_local_y_min": -0.1,
+        #         "plate_local_y_max": 0.1,
+        #         # Slot entry at local z=0.02; cube center must be below this ceiling
+        #         "plate_local_z_max": 0.1,
+        #     },
+        # )
+
         cube_placed = ObsTerm(
             func=cube_placed_on_plate,
             params={
-                "contact_sensor_cfg": SceneEntityCfg("contact_grasp"),
                 "cubes": ["cube_1"],
                 "plate_name": "plate_left",
-                "warmup_steps": 30,
-                "force_threshold": 2,  # N
                 # Plate local dimensions (from plate.usda base mesh extent, centered on origin)
                 "plate_local_x_min": -0.1,
                 "plate_local_x_max": 0.1,
@@ -235,23 +250,40 @@ class CubesToPlateTerminationsCfg:
     demo can still get discarded by racing the clock.
     """
 
+    # success = DoneTerm(
+    #     func=cube_placed_on_plate_termination,
+    #     time_out=False,
+    #     params={
+    #         "contact_sensor_cfg": SceneEntityCfg("contact_grasp"),
+    #         "cubes": ["cube_1"],
+    #         "plate_name": "plate_left",
+    #         "warmup_steps": 30,
+    #         "force_threshold": 2,  # N
+    #         "plate_local_x_min": -0.1,
+    #         "plate_local_x_max": 0.1,
+    #         "plate_local_y_min": -0.1,
+    #         "plate_local_y_max": 0.1,
+    #         "plate_local_z_max": 0.1,
+    #         # ~5 seconds at ~60 control steps/sec (sim.dt=1/120, decimation=2) -
+    #         # gives you time to bring the arm back to a neutral pose before reset.
+    #         "hold_steps": 120,
+    #     },
+    # )
+
     success = DoneTerm(
         func=cube_placed_on_plate_termination,
         time_out=False,
         params={
-            "contact_sensor_cfg": SceneEntityCfg("contact_grasp"),
             "cubes": ["cube_1"],
             "plate_name": "plate_left",
-            "warmup_steps": 30,
-            "force_threshold": 2,  # N
             "plate_local_x_min": -0.1,
             "plate_local_x_max": 0.1,
             "plate_local_y_min": -0.1,
             "plate_local_y_max": 0.1,
             "plate_local_z_max": 0.1,
-            # ~5 seconds at ~60 control steps/sec (sim.dt=1/120, decimation=2) -
+            # ~3 seconds at ~60 control steps/sec (sim.dt=1/120, decimation=2) -
             # gives you time to bring the arm back to a neutral pose before reset.
-            "hold_steps": 120,
+            "hold_steps": 180,
         },
     )
 
@@ -283,13 +315,12 @@ class CubesToPlateEvalEnvCfg(CubesToPlateEnvCfg):
     """
     Eval config.
     """
-    terminations: CubesToPlateTerminationsCfg = CubesToPlateTerminationsCfg()
 
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        # Generous ceiling - not relied on for episode boundaries since there's
-        # no time_out term, just a backstop against a truly stuck episode.
-        self.episode_length_s = 450 / 60.0
+    # def __post_init__(self) -> None:
+    #     super().__post_init__()
+    #     # Generous ceiling - not relied on for episode boundaries since there's
+    #     # no time_out term, just a backstop against a truly stuck episode.
+    #     self.episode_length_s = 450 / 60.0
 
 
 @configclass
@@ -297,8 +328,7 @@ class CubesToPlateEvalDREnvCfg(CubesToPlateDREnvCfg):
     """
     Eval config with Domain Randomization.
     """
-    terminations: CubesToPlateTerminationsCfg = CubesToPlateTerminationsCfg()
 
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        self.episode_length_s = 450 / 60.0
+    # def __post_init__(self) -> None:
+    #     super().__post_init__()
+    #     self.episode_length_s = 450 / 60.0
