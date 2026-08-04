@@ -1,11 +1,3 @@
-"""Shared Cartesian-delta-to-joint-target IK solver for SO-101.
-
-Extracted from oracle_action.py's validated pipeline so both the autonomous oracle
-and the teleop script use IDENTICAL, already-debugged math (base-frame Jacobian
-rotation, TCP offset compensation, joint clamping) rather than two copies that can
-silently drift apart.
-"""
-
 import torch
 
 from isaaclab.controllers import DifferentialIKController, DifferentialIKControllerCfg

@@ -1,28 +1,3 @@
-"""
-Teleoperation script for the SO-101 arm, driven by a physical SO-101 leader
-arm. The recorded data is joint-space (matching your JointPositionActionCfg
-action space), for consistency with generate_so101_data.py and LeRobot
-compatibility.
-
-.. code-block:: bash
-
-    ./isaaclab.sh -p scripts/teleop_so101.py --task <task_name> --leader_port /dev/ttyACM0
-
-Episode recording controls:
-    N : save current episode buffer and start a new one
-    B : discard current episode buffer and start over
-    ESC : quit
-
-NOTE: there are currently no keyboard hotkeys wired up for episode control
-in this script (see the print in main() below) - run alongside a terminal
-you can Ctrl+C, or extend this script with a lightweight keyboard listener
-if you want N/B/ESC while using the leader arm.
-
-Episodes are now also saved/discarded automatically based on the env's
-termination/truncation signals: a `terminations` hit (e.g. success) saves
-the episode, a `truncations` hit (e.g. time out, if enabled) discards it.
-"""
-
 import argparse
 import os
 import glob
@@ -56,8 +31,6 @@ from sim_to_real_so101.utils.so101_ik_solver import SO101IKSolver
 
 
 class RawHdf5Recorder:
-    """Same format as generate_so101_data.py, for a consistent dataset regardless
-    of whether episodes came from the oracle or from teleoperation."""
 
     def __init__(self, output_dir, task_name):
         self.output_dir = output_dir
@@ -122,7 +95,6 @@ class RawHdf5Recorder:
         self.reset_buffers()
 
 
-# --- Real-hardware degree conversion, matching generate_so101_data.py exactly ---
 JOINT_MINS_DEG = [-110.0, -100.0, -100.0, -95.0, -160.0, -10.0]
 JOINT_MAXS_DEG = [110.0, 100.0, 90.0, 95.0, 160.0, 100.0]
 
