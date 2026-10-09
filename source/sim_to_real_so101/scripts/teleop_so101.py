@@ -27,14 +27,16 @@ import torch
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 import sim_to_real_so101.tasks  # noqa: F401
+from sim_to_real_so101.utils.joint_conversion import make_degree_converters
 from sim_to_real_so101.utils.so101_ik_solver import SO101IKSolver
 
 
 class RawHdf5Recorder:
 
-    def __init__(self, output_dir, task_name):
+    def __init__(self, output_dir, task_name, fps):
         self.output_dir = output_dir
         self.task_name = task_name
+        self.fps = fps
         os.makedirs(self.output_dir, exist_ok=True)
         self.reset_buffers()
         
@@ -55,6 +57,16 @@ class RawHdf5Recorder:
         self.actions = []
         self.states = []
         self.images = {}
+        self.initial_poses = {}
+
+    def start_episode(self, scene):
+        """Remember where every rigid object (cube, plate) starts, relative to
+        the env origin, so the episode can be replayed exactly later."""
+        origin = scene.env_origins[0]
+        for name, obj in scene.rigid_objects.items():
+            pose = obj.data.root_state_w[0, :7].clone()
+            pose[:3] -= origin
+            self.initial_poses[name] = pose.cpu().numpy()
 
     def push_frame(self, action, state, visual_obs, camera_names):
         self.actions.append(action.cpu().numpy())
@@ -73,6 +85,9 @@ class RawHdf5Recorder:
         file_path = os.path.join(self.output_dir, f"episode_{self.episode_idx:04d}.h5")
         with h5py.File(file_path, "w") as f:
             f.attrs["task_name"] = self.task_name
+            f.attrs["fps"] = self.fps
+            # action = leader arm command (joint targets), not the measured follower position
+            f.attrs["action_source"] = "leader_command"
             f.create_dataset("action", data=np.array(self.actions, dtype=np.float32))
             f.create_dataset("observation.state", data=np.array(self.states, dtype=np.float32))
             for cam, img_list in self.images.items():
@@ -83,6 +98,8 @@ class RawHdf5Recorder:
                     compression_opts=4,  # Level 4 balances compression speed and file reduction perfectly
                     chunks=True          # Required for compression to work efficiently
                 )
+            for name, pose in self.initial_poses.items():
+                f.create_dataset(f"initial_pose.{name}", data=pose.astype(np.float32))
         print(f"\n[INFO]: Saved teleop demonstration to {file_path} ({len(self.actions)} frames)")
         
         # Increment index ONLY after a successful save
@@ -93,34 +110,6 @@ class RawHdf5Recorder:
         print(f"\n[INFO]: Discarded episode buffer ({len(self.actions)} frames dropped).")
         # Notice we do NOT increment self.episode_idx here
         self.reset_buffers()
-
-
-JOINT_MINS_DEG = [-110.0, -100.0, -100.0, -95.0, -160.0, -10.0]
-JOINT_MAXS_DEG = [110.0, 100.0, 90.0, 95.0, 160.0, 100.0]
-
-
-def make_degree_converters(device):
-    joint_mins = torch.tensor(JOINT_MINS_DEG, device=device)
-    joint_maxs = torch.tensor(JOINT_MAXS_DEG, device=device)
-
-    def sim_radians_to_real_degrees(rad_tensor):
-        deg = rad_tensor * 180.0 / torch.pi
-        normalized = (deg - joint_mins) / (joint_maxs - joint_mins)
-        raw_deg = torch.zeros_like(normalized)
-        raw_deg[:-1] = normalized[:-1] * 200.0 - 100.0
-        raw_deg[-1] = normalized[-1] * 100.0
-        return raw_deg
-
-    def real_degrees_to_sim_radians(raw_deg_tensor):
-        """Converts the physical leader's real servo degrees back into
-        simulation radians."""
-        normalized = torch.zeros_like(raw_deg_tensor)
-        normalized[:-1] = (raw_deg_tensor[:-1] + 100.0) / 200.0
-        normalized[-1] = raw_deg_tensor[-1] / 100.0
-        deg = normalized * (joint_maxs - joint_mins) + joint_mins
-        return deg * torch.pi / 180.0
-
-    return sim_radians_to_real_degrees, real_degrees_to_sim_radians
 
 
 def build_leader_arm(args_cli):
@@ -219,17 +208,46 @@ def build_leader_arm(args_cli):
     return LeaderArmReader()
 
 
+class EpisodeKeys:
+    """Listens for key presses in the Isaac Sim window (the window must have focus)."""
+
+    def __init__(self):
+        import carb
+        import omni.appwindow
+
+        self._carb = carb
+        self._pressed = set()
+        self._input = carb.input.acquire_input_interface()
+        keyboard = omni.appwindow.get_default_app_window().get_keyboard()
+        self._sub = self._input.subscribe_to_keyboard_events(keyboard, self._on_event)
+
+    def _on_event(self, event, *args, **kwargs):
+        if event.type == self._carb.input.KeyboardEventType.KEY_PRESS:
+            self._pressed.add(event.input.name)
+        return True
+
+    def pop(self, key):
+        """True once per press of `key`."""
+        if key in self._pressed:
+            self._pressed.discard(key)
+            return True
+        return False
+
+
 def main():
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=1, use_fabric=True)
     env = gym.make(args_cli.task, cfg=env_cfg)
+    scene = env.unwrapped.scene
     obs, _ = env.reset()
 
     sim_radians_to_real_degrees, real_degrees_to_sim_radians = make_degree_converters(env.unwrapped.device)
 
-    camera_names = [obj.replace("camera_", "") for obj in env.unwrapped.scene.keys() if obj.startswith("camera_")]
+    camera_names = [obj.replace("camera_", "") for obj in scene.keys() if obj.startswith("camera_")]
     print(f"[INFO]: Dynamic Camera Tracking online for: {camera_names}")
 
-    recorder = RawHdf5Recorder(args_cli.output_dir, args_cli.task_name)
+    fps = round(1.0 / env.unwrapped.step_dt)
+    recorder = RawHdf5Recorder(args_cli.output_dir, args_cli.task_name, fps)
+    recorder.start_episode(scene)
 
     try:
         leader = build_leader_arm(args_cli)
@@ -238,20 +256,21 @@ def main():
         env.close()
         return
 
-    print("[INFO]: leader_arm mode active - no keyboard hotkeys available for episode "
-          "control from this device. Run this script alongside a terminal you can "
-          "Ctrl+C, or extend this script with a second lightweight keyboard listener "
-          "if you want N/B/ESC while using the leader arm.")
+    keys = EpisodeKeys()
+    print(f"[INFO]: Recording at {fps} Hz. Episodes are saved automatically when the cube is placed.")
+    print("[INFO]: Keys (click the Isaac Sim window first): N = save now, X = discard and restart. "
+          "Ctrl+C in the terminal to quit.")
 
-    # --- episode control hotkeys (unused placeholders - see note above) ---
-    should_save = {"flag": False}
-    should_discard = {"flag": False}
-    should_quit = {"flag": False}
-
-    robot = env.unwrapped.scene["robot"]
+    robot = scene["robot"]
     arm_joint_ids, _ = robot.find_joints(SO101IKSolver.ARM_JOINT_NAMES)
     gripper_joint_id, _ = robot.find_joints([SO101IKSolver.GRIPPER_JOINT_NAME])
     gripper_joint_id = gripper_joint_id[0]
+    joint_limits = robot.data.soft_joint_pos_limits[0]
+
+    def reset_episode():
+        new_obs, _ = env.reset()
+        recorder.start_episode(scene)
+        return new_obs
 
     while simulation_app.is_running():
         with torch.inference_mode():
@@ -271,47 +290,47 @@ def main():
             # print(f"\r[Leader Telemetry] {telemetry_str}", end="", flush=True)
 
             leader_deg_t = torch.tensor(leader_deg, device=env.unwrapped.device)
-            joint_targets_rad = real_degrees_to_sim_radians(leader_deg_t)
-            sim_actions = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
-            sim_actions[:, arm_joint_ids] = joint_targets_rad[:5]
-            sim_actions[:, gripper_joint_id] = joint_targets_rad[5]
+            leader_rad = real_degrees_to_sim_radians(leader_deg_t)
+            joint_targets_rad = torch.zeros_like(robot.data.joint_pos[0])
+            joint_targets_rad[arm_joint_ids] = leader_rad[:5]
+            joint_targets_rad[gripper_joint_id] = leader_rad[5]
+            # The sim cannot go past its joint limits anyway; clamping keeps the
+            # recorded action inside the range the robot can actually reach.
+            joint_targets_rad = torch.clamp(joint_targets_rad, joint_limits[:, 0], joint_limits[:, 1])
+            sim_actions = joint_targets_rad.unsqueeze(0)
 
-            next_obs, rewards, terminations, truncations, infos = env.step(sim_actions)
-            visual_obs = next_obs.get("visual", None)
-
-            joint_pos_sim_rad = robot.data.joint_pos[0]
-            real_obs_deg = sim_radians_to_real_degrees(joint_pos_sim_rad)
-            real_action_deg = real_obs_deg.clone()
-
+            # Record the observation the operator saw *before* this step together
+            # with the command sent in response to it. The action is the leader
+            # arm command, not where the follower ended up: when the jaw is blocked
+            # by the cube, the command stays "closed", which is what produces the
+            # grip force. That is the same pairing a policy uses at test time.
+            visual_obs = obs.get("visual", None)
             if visual_obs is not None:
+                real_obs_deg = sim_radians_to_real_degrees(robot.data.joint_pos[0])
+                real_action_deg = sim_radians_to_real_degrees(joint_targets_rad)
                 recorder.push_frame(real_action_deg, real_obs_deg, visual_obs, camera_names)
 
-            if should_save["flag"]:
+            obs, rewards, terminations, truncations, infos = env.step(sim_actions)
+
+            if keys.pop("N"):
                 recorder.save_episode()
-                should_save["flag"] = False
-                obs, _ = env.reset()
+                obs = reset_episode()
                 continue
 
-            if should_discard["flag"]:
+            if keys.pop("X"):
                 recorder.discard_episode()
-                should_discard["flag"] = False
-                obs, _ = env.reset()
+                obs = reset_episode()
                 continue
-
-            if should_quit["flag"]:
-                break
 
             if terminations.any():
                 recorder.save_episode()
-                obs, _ = env.reset()
+                obs = reset_episode()
                 continue
 
             if truncations.any():
                 recorder.discard_episode()
-                obs, _ = env.reset()
+                obs = reset_episode()
                 continue
-
-            obs = next_obs
 
     # Clear telemetry trailing output on exit
     print()

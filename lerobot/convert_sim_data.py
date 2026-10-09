@@ -89,6 +89,28 @@ def convert(raw_dir: Path, output_dir: Path, repo_id: str, task_description: str
         episode_files = episode_files[:max_episodes]
 
     print(f"Found {len(episode_files)} episode file(s) in {raw_dir}")
+
+    # Recordings from the current teleop_so101.py store their frame rate and
+    # save the leader command as the action. Older ones store neither (their
+    # action is the measured follower position). Mixing the two would teach
+    # the policy two different meanings of "action", so refuse that.
+    sources, file_fps = set(), set()
+    for ep_path in episode_files:
+        with h5py.File(ep_path, "r") as f:
+            sources.add(f.attrs.get("action_source", "follower_position (old recording)"))
+            if "fps" in f.attrs:
+                file_fps.add(int(f.attrs["fps"]))
+    if len(sources) > 1:
+        raise ValueError(
+            f"{raw_dir} mixes recordings with different action types: {sorted(sources)}. "
+            "Put old and new recordings in separate folders and convert them separately."
+        )
+    print(f"Action type: {sources.pop()}")
+    if fps is None:
+        if len(file_fps) > 1:
+            raise ValueError(f"Recordings have different frame rates {sorted(file_fps)}; pass --fps.")
+        fps = file_fps.pop() if file_fps else 30
+    print(f"Dataset fps: {fps}")
     print(f"Writing LeRobotDataset to {output_dir}")
 
     if output_dir.exists():
@@ -170,7 +192,10 @@ def main():
         help="Dataset repo_id (used as an identifier even for local-only saves)",
     )
     parser.add_argument("--task", type=str, default="pick up the cube and place it on the plate")
-    parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument(
+        "--fps", type=int, default=None,
+        help="Dataset frame rate (default: read from the recordings, or 30 for old recordings)",
+    )
     parser.add_argument("--push_to_hub", action="store_true")
     parser.add_argument(
         "--max_episodes", type=int, default=None,

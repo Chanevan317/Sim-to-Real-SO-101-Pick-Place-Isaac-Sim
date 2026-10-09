@@ -205,6 +205,10 @@ class SO101TaskEnvCfg(SO101TeleopEnvCfg):
         """Post initialization."""
         super().__post_init__()
 
+        # Render once more after a reset so the first camera frame of an episode
+        # shows the new (randomized) scene instead of the previous episode's end.
+        self.num_rerenders_on_reset = 1
+
         self.sim.render.enable_translucency = True
         carb_settings = {
             "rtx.reflections.enabled": True,
