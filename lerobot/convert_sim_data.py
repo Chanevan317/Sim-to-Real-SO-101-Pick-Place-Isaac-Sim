@@ -32,6 +32,19 @@ STATE_DIM = 6
 ACTION_DIM = 6
 IMAGE_SHAPE = (480, 640, 3)
 
+# Per-dimension names for state/action, in teleop_so101.py order
+# (Rotation, Pitch, Elbow, Wrist_Pitch, Wrist_Roll, Jaw). GR00T needs them to
+# keep the gripper absolute when training with relative actions.
+# Keep in sync with JOINT_NAMES in groot/fix_dataset_metadata.py.
+JOINT_NAMES = [
+    "shoulder_pan.pos",
+    "shoulder_lift.pos",
+    "elbow_flex.pos",
+    "wrist_flex.pos",
+    "wrist_roll.pos",
+    "gripper.pos",
+]
+
 IMAGE_KEYS = {
     "observation.images.ego": "observation.images.ego",
     "observation.images.external_D455": "observation.images.external_D455",
@@ -43,12 +56,12 @@ def build_features():
         "observation.state": {
             "dtype": "float32",
             "shape": (STATE_DIM,),
-            "names": None,
+            "names": JOINT_NAMES,
         },
         "action": {
             "dtype": "float32",
             "shape": (ACTION_DIM,),
-            "names": None,
+            "names": JOINT_NAMES,
         },
     }
     for feat_name in IMAGE_KEYS:
@@ -156,7 +169,7 @@ def main():
         "--repo_id", type=str, default="local/so101_sim_test",
         help="Dataset repo_id (used as an identifier even for local-only saves)",
     )
-    parser.add_argument("--task", type=str, default="sim to real so101 task")
+    parser.add_argument("--task", type=str, default="pick up the cube and place it on the plate")
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--push_to_hub", action="store_true")
     parser.add_argument(

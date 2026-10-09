@@ -79,6 +79,11 @@ def main():
 
             request_count += 1
 
+            if batch.get("reset", False):
+                # New episode: drop ACT's queued actions from the previous one.
+                policy.reset()
+                print(f"[SERVER] Episode reset at request #{request_count}")
+
             torch_batch = {
                 "observation.state": torch.from_numpy(batch["state"]).float().unsqueeze(0).to(device),
                 "observation.images.ego": torch.from_numpy(batch["image_ego"]).float().unsqueeze(0).to(device),

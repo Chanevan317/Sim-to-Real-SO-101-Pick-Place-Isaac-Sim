@@ -26,7 +26,11 @@ class PolicyClient:
             data += packet
         return data
 
-    def get_action(self, state: np.ndarray, image_ego: np.ndarray, image_external: np.ndarray) -> np.ndarray:
+    def get_action(self, state: np.ndarray, image_ego: np.ndarray, image_external: np.ndarray,
+                   task: str | None = None, reset: bool = False) -> np.ndarray:
+        # `reset` marks the first request of an episode so the server can
+        # drop queued actions from the previous one. `task` is the language
+        # instruction (used by GR00T, ignored by ACT).
         # Requests still use pickle (dict of small float32 arrays) -- this
         # direction has been working fine. Only the numpy-array RESPONSE
         # needs the version-agnostic path below.
@@ -34,6 +38,8 @@ class PolicyClient:
             "state": state.astype(np.float32),
             "image_ego": image_ego.astype(np.float32),
             "image_external": image_external.astype(np.float32),
+            "task": task,
+            "reset": reset,
         })
         self._send(payload)
 

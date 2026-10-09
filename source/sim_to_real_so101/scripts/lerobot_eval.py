@@ -14,6 +14,9 @@ so this environment (env_isaaclab) never needs to import lerobot.
     # terminal 2 (env_isaaclab env):
     conda activate env_isaaclab
     ./isaaclab.sh -p eval_act_so101.py --task <task_name> --num_episodes 10
+
+For GR00T, run lerobot/groot/groot_policy_server.py in terminal 1 instead;
+this script is unchanged (pass --policy_task if your dataset instruction differs).
 """
 
 import argparse
@@ -30,6 +33,8 @@ parser.add_argument("--seed", type=int, default=1984)
 parser.add_argument("--num_episodes", type=int, default=5)
 parser.add_argument("--policy_host", type=str, default="127.0.0.1")
 parser.add_argument("--policy_port", type=int, default=9999)
+parser.add_argument("--policy_task", type=str, default="pick up the cube and place it on the plate",
+                    help="Language instruction sent to the policy (used by GR00T, ignored by ACT).")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -158,7 +163,10 @@ def main():
                 image_ego = prep_image(visual_obs["rgb_ego"][0].cpu().numpy().astype(np.uint8))
                 image_external = prep_image(visual_obs["rgb_external_D455"][0].cpu().numpy().astype(np.uint8))
 
-                action_real_deg = policy.get_action(state_real_deg, image_ego, image_external)
+                action_real_deg = policy.get_action(
+                    state_real_deg, image_ego, image_external,
+                    task=args_cli.policy_task, reset=(step == 10),
+                )
                 # print(f"[CLIENT] step={step} state_real_deg={state_real_deg} "
                 #     f"action_real_deg={action_real_deg}")
 
