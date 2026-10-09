@@ -33,11 +33,18 @@ cd ~/Documents/chan_evan/Sim-to-Real-SO-101-Pick-Place-Isaac-Sim
 python source/sim_to_real_so101/scripts/lerobot_eval.py --task Lerobot-So101-Teleop-Cubes-To-Plate-DR-Eval --num_episodes 10
 ```
 
-The robot tries the task 10 times, and at the end you see the result, for example:
+The robot tries the task 10 times. After each try it prints the result, and at the end the
+success rate, for example:
 
 ```
+[INFO]: Episode 1: success after 9.4 s
+[INFO]: Episode 2: timeout after 30.0 s
+...
 [INFO]: Success Rate: 7/10 (70.0%)
 ```
+
+A try is a **success** when the cube stays on the plate for about 3 seconds. If that does not
+happen within 30 seconds, the try counts as a **timeout** (a failure) and the next one starts.
 
 ## Options
 
@@ -47,6 +54,7 @@ The robot tries the task 10 times, and at the end you see the result, for exampl
 |---|---|---|
 | `--task` | — | Scene name. Use `Lerobot-So101-Teleop-Cubes-To-Plate-DR-Eval` |
 | `--num_episodes` | `5` | Number of tries |
+| `--max_episode_s` | `30` | Seconds before a try counts as a failure ("timeout") |
 | `--seed` | `1984` | Same seed gives the same random scenes, so you can compare models fairly |
 | `--policy_task` | `pick up the cube and place it on the plate` | Task sentence for GR00T. It must match the one in the dataset |
 | `--headless` | off | Run without a window (faster) |
@@ -62,5 +70,4 @@ The robot tries the task 10 times, and at the end you see the result, for exampl
 ## Good to know
 
 - **Restart the model server before each test.** It stops by itself when the simulator closes.
-- **A try has no time limit.** If the robot gets stuck, the try never ends. Stop with Ctrl+C.
 - **Compare ACT and GR00T fairly:** use the same `--seed` and `--num_episodes` for both.

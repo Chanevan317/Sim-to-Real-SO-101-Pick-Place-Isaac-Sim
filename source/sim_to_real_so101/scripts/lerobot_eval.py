@@ -31,6 +31,8 @@ parser.add_argument("--num_envs", type=int, default=None)
 parser.add_argument("--task", type=str, default=None)
 parser.add_argument("--seed", type=int, default=1984)
 parser.add_argument("--num_episodes", type=int, default=5)
+parser.add_argument("--max_episode_s", type=float, default=30.0,
+                    help="Seconds before an episode counts as a failure (the task itself has no time limit).")
 parser.add_argument("--policy_host", type=str, default="127.0.0.1")
 parser.add_argument("--policy_port", type=int, default=9999)
 parser.add_argument("--policy_task", type=str, default="pick up the cube and place it on the plate",
@@ -109,6 +111,9 @@ def main():
         device=env.unwrapped.device,
     )
 
+    max_steps = int(args_cli.max_episode_s / env.unwrapped.step_dt)
+    print(f"[INFO]: Time limit per episode: {args_cli.max_episode_s:.0f} s ({max_steps} steps)")
+
     step = 0
     num_episodes = 0
     num_successes = 0
@@ -120,7 +125,7 @@ def main():
 
             if step == 0:
                 pbar = tqdm(
-                    total=env.unwrapped.max_episode_length,
+                    total=max_steps,
                     desc=f"Rollout (ep {num_episodes + 1}, success: {success_rate:.1f}%)",
                     unit="step",
                     bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]'
@@ -156,34 +161,31 @@ def main():
             is_terminated = terminated.item() if terminated.numel() == 1 else terminated.any().item()
             is_truncated = truncated.item() if truncated.numel() == 1 else truncated.any().item()
 
-            if is_terminated or is_truncated:
+            timed_out = step >= max_steps
+
+            if is_terminated or is_truncated or timed_out:
                 if pbar is not None:
                     pbar.close()
                     pbar = None
 
                 num_episodes += 1
-                if is_terminated and not is_truncated:
-                    num_successes += 1
+                success = is_terminated and not is_truncated
+                num_successes += int(success)
                 success_rate = (num_successes / num_episodes) * 100
+                result = "success" if success else ("timeout" if timed_out else "failure")
+                print(f"[INFO]: Episode {num_episodes}: {result} after {step * env.unwrapped.step_dt:.1f} s")
+
+                if num_episodes >= args_cli.num_episodes:
+                    break
 
                 obs, _ = env.reset()
                 step = 0
-                continue
 
-            if num_episodes >= args_cli.num_episodes:
-                if pbar is not None:
-                    pbar.close()
-                    pbar = None
-                print(f"[INFO]: Evaluated {args_cli.num_episodes} episodes")
-                print(f"[INFO]: Success Rate: {num_successes}/{args_cli.num_episodes} ({success_rate:.1f}%)")
-                env.close()
-                simulation_app.close()
-
+    print(f"[INFO]: Evaluated {num_episodes} episodes")
+    print(f"[INFO]: Success Rate: {num_successes}/{num_episodes} ({success_rate:.1f}%)")
     env.close()
 
 
 if __name__ == "__main__":
     main()
-    while True:
-        simulation_app.update()
     simulation_app.close()
