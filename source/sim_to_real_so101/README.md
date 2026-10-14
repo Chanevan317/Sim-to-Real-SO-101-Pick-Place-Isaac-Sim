@@ -17,6 +17,7 @@ Use the `env_isaaclab` conda environment. Install it once with
 | `scripts/list_envs.py` | Lists the scene names | [Setup](../../docs/1_setup.md#5-check-that-everything-works) |
 | `scripts/zero_agent.py` | Opens a scene, robot stays still | [Setup](../../docs/1_setup.md#5-check-that-everything-works) |
 | `scripts/random_agent.py` | Opens a scene, robot moves randomly | [Setup](../../docs/1_setup.md#5-check-that-everything-works) |
+| `scripts/calibrate_leader.py` | Line up the leader arm with the simulator (once per arm) | [Record demos](../../docs/2_record_demos.md#calibrate-the-leader-arm-once-per-leader-arm) |
 | `scripts/teleop_so101.py` | Record demos with the leader arm | [Record demos](../../docs/2_record_demos.md) |
 | `scripts/replay_episode.py` | Replay recordings to check they are good | [Record demos](../../docs/2_record_demos.md#check-your-recordings-optional) |
 | `scripts/lerobot_eval.py` | Test a trained model | [Test the model](../../docs/5_test_model.md) |

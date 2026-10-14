@@ -3,6 +3,27 @@
 You move the real leader arm, and the robot in the simulator copies you. Each successful try is
 saved as one file.
 
+## Calibrate the leader arm (once per leader arm)
+
+Each leader arm reads its motor angles a little differently. This step teaches the script how
+your arm's **wrist roll** and **gripper** line up with the robot in the simulator.
+
+```bash
+conda activate env_isaaclab
+cd ~/Documents/chan_evan/Sim-to-Real-SO-101-Pick-Place-Isaac-Sim/source/sim_to_real_so101
+python scripts/calibrate_leader.py
+```
+
+1. Click the Isaac Sim window, so it receives the key presses.
+2. The robot in the simulator moves one joint to its **middle**, then its **min**, then its **max**
+   position. Each time, move the leader arm to the same pose and press **N**.
+3. After the last pose, the robot follows your leader arm. Check that the wrist roll and the
+   gripper move the same way as your hand. Press **N** to save, or **X** to start over.
+
+The result is saved in `source/sim_to_real_so101/leader_calibration.json` (not saved in git,
+because it belongs to your leader arm). The recording script reads it automatically.
+To calibrate all six joints instead of two, add `--joints all`.
+
 ## Run
 
 ```bash
@@ -33,6 +54,16 @@ Click the Isaac Sim window first, so it receives the key presses.
 
 If you run the script again later, it keeps counting from the last file, so nothing is
 overwritten. You can also delete a bad `.h5` file by hand.
+
+Saving takes less than a second. The pictures are compressed afterwards in the background,
+while you record the next try. During that time the file is called `episode_0000.h5.tmp`, and
+it becomes `episode_0000.h5` when done. No recording is lost when you quit: files that are
+being compressed finish in the background, and any `.tmp` files left over (after **Ctrl+C** or a
+crash) are compressed the next time you start the script. You can also compress them by hand:
+
+```bash
+python -m sim_to_real_so101.utils.h5_compress raw_teleop_data
+```
 
 ## Tips for good demos
 

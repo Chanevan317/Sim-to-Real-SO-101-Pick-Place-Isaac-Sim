@@ -27,8 +27,10 @@ import torch
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 import sim_to_real_so101.tasks  # noqa: F401
+from sim_to_real_so101.utils.h5_compress import TMP_SUFFIX, CompressionQueue
 from sim_to_real_so101.utils.joint_conversion import make_degree_converters
-from sim_to_real_so101.utils.so101_ik_solver import SO101IKSolver
+from sim_to_real_so101.utils.leader_arm import JOINT_NAMES, LeaderArm, leader_to_sim_radians, load_calibration
+from sim_to_real_so101.utils.sim_keys import SimKeys
 
 
 class RawHdf5Recorder:
@@ -41,7 +43,10 @@ class RawHdf5Recorder:
         self.reset_buffers()
         
         # --- NEW: Auto-resume episode indexing ---
+        # Episodes still waiting for compression (.h5.tmp) count too.
         existing_files = glob.glob(os.path.join(self.output_dir, "episode_*.h5"))
+        leftover_tmp = sorted(glob.glob(os.path.join(self.output_dir, f"episode_*.h5{TMP_SUFFIX}")))
+        existing_files += leftover_tmp
         max_idx = -1
         for f in existing_files:
             # Extract the integer from filenames like "episode_0042.h5"
@@ -52,6 +57,12 @@ class RawHdf5Recorder:
         # Start at the next available index
         self.episode_idx = max_idx + 1
         print(f"[INFO]: Data directory found. Starting new recordings at episode_{self.episode_idx:04d}.h5")
+
+        # Images are compressed in background processes, so saving does not stall the sim.
+        self.compression = CompressionQueue()
+        for tmp_path in leftover_tmp:
+            print(f"[INFO]: Compressing leftover {tmp_path}")
+            self.compression.submit(tmp_path)
 
     def reset_buffers(self):
         self.actions = []
@@ -83,7 +94,9 @@ class RawHdf5Recorder:
             print("[INFO]: Nothing to save - episode buffer is empty.")
             return
         file_path = os.path.join(self.output_dir, f"episode_{self.episode_idx:04d}.h5")
-        with h5py.File(file_path, "w") as f:
+        # Written uncompressed first (fast); the compression queue turns it into file_path.
+        tmp_path = file_path + TMP_SUFFIX
+        with h5py.File(tmp_path, "w") as f:
             f.attrs["task_name"] = self.task_name
             f.attrs["fps"] = self.fps
             # action = leader arm command (joint targets), not the measured follower position
@@ -91,16 +104,12 @@ class RawHdf5Recorder:
             f.create_dataset("action", data=np.array(self.actions, dtype=np.float32))
             f.create_dataset("observation.state", data=np.array(self.states, dtype=np.float32))
             for cam, img_list in self.images.items():
-                f.create_dataset(
-                    f"observation.images.{cam}", 
-                    data=np.array(img_list, dtype=np.uint8),
-                    compression="gzip",
-                    compression_opts=4,  # Level 4 balances compression speed and file reduction perfectly
-                    chunks=True          # Required for compression to work efficiently
-                )
+                f.create_dataset(f"observation.images.{cam}", data=np.array(img_list, dtype=np.uint8))
             for name, pose in self.initial_poses.items():
                 f.create_dataset(f"initial_pose.{name}", data=pose.astype(np.float32))
-        print(f"\n[INFO]: Saved teleop demonstration to {file_path} ({len(self.actions)} frames)")
+        self.compression.submit(tmp_path)
+        print(f"\n[INFO]: Saved teleop demonstration to {file_path} ({len(self.actions)} frames, "
+              f"{self.compression.pending()} file(s) compressing in the background)")
         
         # Increment index ONLY after a successful save
         self.episode_idx += 1
@@ -110,128 +119,6 @@ class RawHdf5Recorder:
         print(f"\n[INFO]: Discarded episode buffer ({len(self.actions)} frames dropped).")
         # Notice we do NOT increment self.episode_idx here
         self.reset_buffers()
-
-
-def build_leader_arm(args_cli):
-    """
-    Direct Feetech servo communication using official scservo_sdk PacketHandler.
-    Includes LeRobot's exact calibration logic (offsets and direction inversion).
-    """
-    try:
-        from scservo_sdk import PortHandler, PacketHandler, COMM_SUCCESS
-    except ImportError as e:
-        raise ImportError(
-            "Please install the correct Feetech SDK: `pip install feetech-servo-sdk`"
-        ) from e
-
-    port_handler = PortHandler(args_cli.leader_port)
-    packet_handler = PacketHandler(0)  # Protocol version 0 for STS series servos
-
-    if not port_handler.openPort():
-        raise RuntimeError(f"Failed to open serial port {args_cli.leader_port}")
-
-    if not port_handler.setBaudRate(1000000):
-        raise RuntimeError("Failed to change the baudrate to 1000000 bps.")
-
-    # -------------------------------------------------------------------------
-    # LEROBOT-STYLE CALIBRATION CONFIGURATION
-    # Format: motor_id: (homing_offset_degrees, direction_multiplier)
-    # -------------------------------------------------------------------------
-    CALIBRATION = {
-        1: {"offset": 0.0,  "direction": 1},   # Base Rotation
-        2: {"offset": 0.0,  "direction": 1},   # Pitch
-        3: {"offset": 0.0,  "direction": 1},   # Elbow
-        4: {"offset": 0.0,  "direction": 1},   # Wrist_Pitch
-        5: {"offset": 0.0,  "direction": 1},   # Wrist_Roll
-        6: {"offset": 0.0,  "direction": 1},   # Jaw / Gripper
-    }
-
-    motor_ids = [1, 2, 3, 4, 5, 6]
-    ADDR_STS_PRESENT_POSITION = 56
-
-    class LeaderArmReader:
-        # def read_positions_deg(self):
-        #     raw_degrees = []
-        #     for motor_id in motor_ids:
-        #         pos, comm_result, error = packet_handler.read2ByteTxRx(
-        #             port_handler, motor_id, ADDR_STS_PRESENT_POSITION
-        #         )
-
-        #         if comm_result == COMM_SUCCESS:
-        #             # 1. Convert raw 12-bit encoder ticks to raw center-offset degrees
-        #             raw_deg = (pos / 4096.0) * 360.0 - 180.0
-
-        #             # 2. Apply LeRobot Calibration: (Raw Angle - Homing Offset) * Direction
-        #             cfg = CALIBRATION[motor_id]
-        #             calibrated_deg = (raw_deg - cfg["offset"]) * cfg["direction"]
-
-        #             raw_degrees.append(calibrated_deg)
-        #         else:
-        #             raw_degrees.append(0.0)
-
-        #     return np.array(raw_degrees, dtype=np.float32)
-
-        def __init__(self):
-            self._last_raw_deg_wrist_roll = None
-            self._unwrap_offset_wrist_roll = 0.0
-
-        def read_positions_deg(self):
-            raw_degrees = []
-            for motor_id in motor_ids:
-                pos, comm_result, error = packet_handler.read2ByteTxRx(
-                    port_handler, motor_id, ADDR_STS_PRESENT_POSITION
-                )
-
-                if comm_result == COMM_SUCCESS:
-                    raw_deg = (pos / 4096.0) * 360.0 - 180.0
-
-                    if motor_id == 5:
-                        # Wrist_Roll only: unwrap the -180/+180 encoder seam.
-                        last = self._last_raw_deg_wrist_roll
-                        if last is not None:
-                            delta = raw_deg - last
-                            if delta > 180.0:
-                                self._unwrap_offset_wrist_roll -= 360.0
-                            elif delta < -180.0:
-                                self._unwrap_offset_wrist_roll += 360.0
-                        self._last_raw_deg_wrist_roll = raw_deg
-                        raw_deg = raw_deg + self._unwrap_offset_wrist_roll
-
-                    cfg = CALIBRATION[motor_id]
-                    calibrated_deg = (raw_deg - cfg["offset"]) * cfg["direction"]
-                    raw_degrees.append(calibrated_deg)
-                else:
-                    raw_degrees.append(0.0)
-
-            return np.array(raw_degrees, dtype=np.float32)
-
-    return LeaderArmReader()
-
-
-class EpisodeKeys:
-    """Listens for key presses in the Isaac Sim window (the window must have focus)."""
-
-    def __init__(self):
-        import carb
-        import omni.appwindow
-
-        self._carb = carb
-        self._pressed = set()
-        self._input = carb.input.acquire_input_interface()
-        keyboard = omni.appwindow.get_default_app_window().get_keyboard()
-        self._sub = self._input.subscribe_to_keyboard_events(keyboard, self._on_event)
-
-    def _on_event(self, event, *args, **kwargs):
-        if event.type == self._carb.input.KeyboardEventType.KEY_PRESS:
-            self._pressed.add(event.input.name)
-        return True
-
-    def pop(self, key):
-        """True once per press of `key`."""
-        if key in self._pressed:
-            self._pressed.discard(key)
-            return True
-        return False
 
 
 def main():
@@ -250,21 +137,26 @@ def main():
     recorder.start_episode(scene)
 
     try:
-        leader = build_leader_arm(args_cli)
+        leader = LeaderArm(args_cli.leader_port)
     except Exception as e:
         print(f"[ERROR]: No 'leader_arm' device found at {args_cli.leader_port} ({e}). Exiting.")
         env.close()
         return
 
-    keys = EpisodeKeys()
+    calibration = load_calibration()
+    print(f"[INFO]: Leader calibration loaded for: {sorted(calibration) or 'no joints'}")
+    for name in ("Wrist_Roll", "Jaw"):
+        if name not in calibration:
+            print(f"[WARNING]: {name} is not calibrated and will not follow the leader correctly. "
+                  "Run scripts/calibrate_leader.py first.")
+
+    keys = SimKeys()
     print(f"[INFO]: Recording at {fps} Hz. Episodes are saved automatically when the cube is placed.")
     print("[INFO]: Keys (click the Isaac Sim window first): N = save now, X = discard and restart. "
           "Ctrl+C in the terminal to quit.")
 
     robot = scene["robot"]
-    arm_joint_ids, _ = robot.find_joints(SO101IKSolver.ARM_JOINT_NAMES)
-    gripper_joint_id, _ = robot.find_joints([SO101IKSolver.GRIPPER_JOINT_NAME])
-    gripper_joint_id = gripper_joint_id[0]
+    leader_joint_ids = [robot.joint_names.index(name) for name in JOINT_NAMES]
     joint_limits = robot.data.soft_joint_pos_limits[0]
 
     def reset_episode():
@@ -274,26 +166,11 @@ def main():
 
     while simulation_app.is_running():
         with torch.inference_mode():
-            leader_deg = leader.read_positions_deg()
-
-            # --- REAL-TIME TELEMETRY PRINTING ---
-            # Formats the current positions of all 6 joints to 1 decimal place.
-            # \r overwrites the line in real-time without scrolling your screen away.
-            telemetry_str = (
-                f"Rot: {leader_deg[0]:6.1f}° | "
-                f"Pit: {leader_deg[1]:6.1f}° | "
-                f"Elb: {leader_deg[2]:6.1f}° | "
-                f"W_Pit: {leader_deg[3]:6.1f}° | "
-                f"W_Roll: {leader_deg[4]:6.1f}° | "
-                f"Jaw: {leader_deg[5]:6.1f}°"
+            leader_rad = leader_to_sim_radians(
+                leader.read_raw_deg(), calibration, real_degrees_to_sim_radians, env.unwrapped.device
             )
-            # print(f"\r[Leader Telemetry] {telemetry_str}", end="", flush=True)
-
-            leader_deg_t = torch.tensor(leader_deg, device=env.unwrapped.device)
-            leader_rad = real_degrees_to_sim_radians(leader_deg_t)
             joint_targets_rad = torch.zeros_like(robot.data.joint_pos[0])
-            joint_targets_rad[arm_joint_ids] = leader_rad[:5]
-            joint_targets_rad[gripper_joint_id] = leader_rad[5]
+            joint_targets_rad[leader_joint_ids] = leader_rad
             # The sim cannot go past its joint limits anyway; clamping keeps the
             # recorded action inside the range the robot can actually reach.
             joint_targets_rad = torch.clamp(joint_targets_rad, joint_limits[:, 0], joint_limits[:, 1])
@@ -332,8 +209,10 @@ def main():
                 obs = reset_episode()
                 continue
 
-    # Clear telemetry trailing output on exit
     print()
+    if recorder.compression.pending():
+        print(f"[INFO]: Waiting for {recorder.compression.pending()} episode(s) to finish compressing...")
+        recorder.compression.wait()
     env.close()
 
 

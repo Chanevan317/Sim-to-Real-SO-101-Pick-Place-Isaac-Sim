@@ -39,23 +39,19 @@ If the output folder already exists, the script stops. To start over, delete the
 rm -rf ./lerobot_dataset
 ```
 
-## Old dataset and new recordings
+## Using the dataset
 
-The existing 300-episode dataset in `lerobot/lerobot_dataset/` was recorded with the old script
-(see [Record demos](2_record_demos.md#what-is-inside-each-file)). It still works for training, but
-models trained on it hold the cube loosely.
+The dataset is ready for both ACT and GR00T: it already has the joint names and the task
+sentence that GR00T needs. Train with the default folder, or pass another one:
+- ACT: `--dataset.root=./lerobot_dataset`
+- GR00T: `DATASET_ROOT=../lerobot_dataset ./train_groot.sh`
 
-When you record new demos, convert them into a **new folder**, so the old one stays untouched:
+To train on another computer, copy the whole dataset folder there.
 
-```bash
-python convert_sim_data.py --output_dir ./lerobot_dataset_v2
-```
+A dataset cannot be extended. If you record more demos later, convert **all** the recordings
+again into a new folder (for example `--output_dir ./lerobot_dataset_100ep`).
 
-Then train with that folder:
-- ACT: `--dataset.root=./lerobot_dataset_v2`
-- GR00T: `DATASET_ROOT=../lerobot_dataset_v2 ./train_groot.sh`
-
-New datasets already contain everything GR00T needs. Only the old dataset needed the
-[one-time fix](4b_train_groot.md#1-fix-an-old-dataset-only-once).
+Only datasets made with an old version of this script need the
+[one-time fix](4b_train_groot.md#1-fix-an-old-dataset-only-once) before GR00T training.
 
 Next: [Train ACT](4a_train_act.md) or [Train GR00T](4b_train_groot.md)

@@ -14,6 +14,7 @@
 
 # My data
 raw_teleop_data
+leader_calibration.json
 lerobot/lerobot_dataset
 lerobot/train
 
