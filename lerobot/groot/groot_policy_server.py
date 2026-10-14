@@ -18,6 +18,7 @@ Usage (lerobot env):
 """
 
 import argparse
+import os
 import pickle
 import socket
 import sys
@@ -30,6 +31,19 @@ from lerobot.policies.groot.modeling_groot import GrootPolicy
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from policy_server import encode_ndarray, recv_msg, send_msg  # noqa: E402
+
+# HF_TOKEN for the gated nvidia/Cosmos-Reason2-2B repo: the Qwen2VL processor
+# is only built on the first request, so without this the server looks fine
+# at startup and then dies on the sim's first observation. Load the same
+# gitignored .env train_groot.sh uses, without overriding a token already
+# exported in the shell.
+_env_path = Path(__file__).resolve().parent / ".env"
+if _env_path.exists():
+    for _line in _env_path.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _key, _, _value = _line.partition("=")
+            os.environ.setdefault(_key.strip(), _value.strip())
 
 DEFAULT_TASK = "pick up the cube and place it on the plate"
 

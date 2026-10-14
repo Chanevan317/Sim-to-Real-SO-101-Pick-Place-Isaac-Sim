@@ -26,6 +26,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/../train/outputs/so101_groot}"
 # Batch size 8 peaks at ~13.6 GB with LOW_MEMORY=1 (tested on an RTX 4080 SUPER).
 BATCH_SIZE="${BATCH_SIZE:-8}"
 STEPS="${STEPS:-20000}"
+SAVE_FREQ="${SAVE_FREQ:-5000}"
 # Train on the first N episodes only (episode_index 0..N-1). Unset = all episodes.
 NUM_EPISODES="${NUM_EPISODES:-}"
 # How many GPUs to train on. Each GPU holds a full model copy and gets
@@ -43,6 +44,10 @@ fi
 # LOW_MEMORY=0 is NVIDIA's full recipe (fp32 weights, DiT trained), which
 # needs roughly 40 GB or more.
 LOW_MEMORY="${LOW_MEMORY:-1}"
+# Dataloader worker processes. The dataset's camera frames are AV1 video,
+# decoded on CPU (pyav), so this needs to scale with batch size to keep the
+# GPU fed; raise it on machines with more cores.
+NUM_WORKERS="${NUM_WORKERS:-4}"
 
 export CUDA_VISIBLE_DEVICES="$GPU"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
@@ -83,12 +88,12 @@ fi
   --policy.push_to_hub=false \
   --batch_size="$BATCH_SIZE" \
   --steps="$STEPS" \
-  --save_freq=5000 \
+  --save_freq="$SAVE_FREQ" \
   --use_policy_training_preset=true \
   --env_eval_freq=0 \
   --eval_steps=0 \
   --log_freq=10 \
-  --num_workers=4 \
+  --num_workers="$NUM_WORKERS" \
   --output_dir="$OUTPUT_DIR" \
   --job_name=so101_groot \
   --wandb.enable=false \
