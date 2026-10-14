@@ -12,6 +12,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Load HF_TOKEN (needed for the gated nvidia/Cosmos-Reason2-2B repo) from a
+# gitignored .env next to this script, if present. See .env.example.
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+  set -a
+  source "$SCRIPT_DIR/.env"
+  set +a
+fi
+
 DATASET_ROOT="${DATASET_ROOT:-$SCRIPT_DIR/../lerobot_dataset}"
 REPO_ID="${REPO_ID:-local/so101_sim_test}"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/../train/outputs/so101_groot}"
@@ -29,10 +37,11 @@ if [[ "$NUM_GPUS" -gt 1 ]]; then
 else
   GPU="${GPU:-0}"
 fi
-# LOW_MEMORY=1 fits a 16 GB GPU: weights stay in bf16 instead of fp32, and the
-# 1.1B-parameter diffusion transformer (DiT) is frozen, so only the ~0.5B
-# state/action encoders and VL projector train. LOW_MEMORY=0 is NVIDIA's full
-# recipe (fp32 weights, DiT trained), which needs roughly 40 GB or more.
+# LOW_MEMORY=1 fits a 16 GB GPU: weights stay in bf16 (--policy.dtype=bfloat16)
+# instead of fp32, and the 1.1B-parameter diffusion transformer (DiT) is
+# frozen, so only the ~0.5B state/action encoders and VL projector train.
+# LOW_MEMORY=0 is NVIDIA's full recipe (fp32 weights, DiT trained), which
+# needs roughly 40 GB or more.
 LOW_MEMORY="${LOW_MEMORY:-1}"
 
 export CUDA_VISIBLE_DEVICES="$GPU"
@@ -40,7 +49,10 @@ export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:T
 
 MEMORY_ARGS=()
 if [[ "$LOW_MEMORY" == "1" ]]; then
-  MEMORY_ARGS=(--policy.model_params_fp32=false --policy.tune_diffusion_model=false)
+  # `model_params_fp32` is dead in current LeRobot (silently discarded in
+  # configuration_groot.py's __post_init__); `dtype` is the flag that actually
+  # controls whether the model gets cast to fp32.
+  MEMORY_ARGS=(--policy.dtype=bfloat16 --policy.tune_diffusion_model=false)
 fi
 
 EPISODE_ARGS=()
