@@ -51,6 +51,20 @@ def place_objects(scene, f):
         obj.write_root_velocity_to_sim(torch.zeros(1, 6, device=scene.device), env_ids=env_ids)
 
 
+def restore_target(env, env_cfg, instruction):
+    """Two-cube recordings: the reset drew a random target cube, so set the recorded
+    one again. Otherwise the success check may watch the other cube."""
+    if isinstance(instruction, bytes):
+        instruction = instruction.decode("utf-8")
+    cube_colors = env_cfg.events.reset_cubes_setup.params.get("cube_colors", {})
+    for name, color in cube_colors.items():
+        if f" {color} cube" in instruction:
+            env.unwrapped.target_cube_name = name
+            env.unwrapped.target_cube_color = color
+            return name
+    raise ValueError(f"No cube in {cube_colors} matches the recorded instruction {instruction!r}")
+
+
 def main():
     files = sorted(glob.glob(args_cli.episodes))
     if not files:
@@ -70,6 +84,9 @@ def main():
             actions = torch.tensor(f["action"][:], device=env.unwrapped.device)
             env.reset()
             place_objects(scene, f)
+            target = None
+            if "instruction" in f.attrs:
+                target = restore_target(env, env_cfg, f.attrs["instruction"])
 
         success_step = None
         with torch.inference_mode():
@@ -83,7 +100,8 @@ def main():
 
         ok = success_step is not None
         results.append(ok)
-        detail = f"success at step {success_step}" if ok else "cube NOT on the plate at the end"
+        cube = target or "cube"
+        detail = f"success at step {success_step}" if ok else f"{cube} NOT on the plate at the end"
         print(f"[{'OK' if ok else 'FAIL'}] {path} ({len(actions)} steps): {detail}")
         if not simulation_app.is_running():
             break

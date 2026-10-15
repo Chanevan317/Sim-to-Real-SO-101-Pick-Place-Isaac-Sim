@@ -31,6 +31,7 @@ from sim_to_real_so101.utils.h5_compress import TMP_SUFFIX, CompressionQueue
 from sim_to_real_so101.utils.joint_conversion import make_degree_converters
 from sim_to_real_so101.utils.leader_arm import JOINT_NAMES, LeaderArm, leader_to_sim_radians, load_calibration
 from sim_to_real_so101.utils.sim_keys import SimKeys
+from sim_to_real_so101.utils.viewport_label import ViewportLabel
 
 
 class RawHdf5Recorder:
@@ -151,9 +152,18 @@ def main():
 
     fps = round(1.0 / env.unwrapped.step_dt)
     recorder = RawHdf5Recorder(args_cli.output_dir, args_cli.task_name, fps)
-    recorder.instruction = instruction_for_current_episode(env)
-    if recorder.instruction is not None:
-        print(f"[INFO]: This episode's target: {recorder.instruction}")
+    # Two-cube task: show this episode's target cube in the viewport (UI only,
+    # not seen by the recorded cameras).
+    label = ViewportLabel()
+
+    def announce_target():
+        recorder.instruction = instruction_for_current_episode(env)
+        if recorder.instruction is not None:
+            print(f"[INFO]: This episode's target: {recorder.instruction}")
+            color = env.unwrapped.target_cube_color
+            label.set(f"TARGET: {color.upper()} cube", color)
+
+    announce_target()
     recorder.start_episode(scene)
 
     try:
@@ -181,9 +191,7 @@ def main():
 
     def reset_episode():
         new_obs, _ = env.reset()
-        recorder.instruction = instruction_for_current_episode(env)
-        if recorder.instruction is not None:
-            print(f"[INFO]: This episode's target: {recorder.instruction}")
+        announce_target()
         recorder.start_episode(scene)
         return new_obs
 

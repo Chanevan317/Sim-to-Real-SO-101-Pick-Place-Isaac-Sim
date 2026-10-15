@@ -53,6 +53,10 @@ example:
 [INFO]: This episode's target: pick up the red cube and place it on the plate
 ```
 
+The sim window also shows it in the top-right corner, for example **TARGET: RED cube** in red.
+This label is only on your screen: the robot's cameras do not see it, so it is not in the
+recordings.
+
 Only move **that** cube. The other one is a distractor — leave it alone. This is what teaches the
 model to actually look at which cube it's told to grab, instead of always going for "the cube"
 (there's only ever one in the single-cube task, so it never has to choose). The episode only

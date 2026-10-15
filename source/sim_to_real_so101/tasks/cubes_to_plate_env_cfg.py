@@ -208,16 +208,20 @@ class CubesToPlateEventDRCfg(CubesToPlateEventCfg):
 
 
 # Spawn region shared by both cubes in the two-cube task, as an offset from
-# their shared default anchor (0.23, -0.08). Deliberately nests inside the
-# y in [-0.16, 0.0] / x~0.23 span this file's original (commented-out)
-# cube_2/cube_3 anchors already staked out, so it's wider than the original
-# single-cube range (more grasp-position variety) without reaching into
-# unverified territory. reset_two_cubes_plate rejects draws that put the two
-# cubes, or a cube and the plate, closer than min_cube_separation /
-# min_plate_clearance.
+# their shared default anchor (0.23, -0.08): cube centres land in
+# x [0.17, 0.23], y [-0.15, -0.01]. Sized from the arm's reach: a forward-
+# kinematics sweep (all joints >= 10 deg from their limits) allows a steep,
+# top-down grasp at cube height up to ~0.32 m from the pan axis at
+# (-0.027, 0.021); the old single-cube demos already reached 0.317 m. The far
+# corner here is 0.308 m away (grasp ~20 deg from vertical), leaving a margin.
+# The box is long in y so two cubes still fit min_cube_separation apart:
+# reset_two_cubes_plate only resamples the second cube, and in a squarer box
+# it often found no free spot and kept an overlapping draw.
+# reset_two_cubes_plate rejects draws that put the two cubes, or a cube and
+# the plate, closer than min_cube_separation / min_plate_clearance.
 TWO_CUBE_POSE_RANGE = {
-    "x": (-0.06, 0.06),
-    "y": (-0.08, 0.08),
+    "x": (-0.06, 0.0),
+    "y": (-0.07, 0.07),
     "roll": (-0.3, 0.3),
     "yaw": (0.0, 0.0),
 }
@@ -247,7 +251,8 @@ class TwoCubesToPlateEventCfg(TaskEventCfg):
             "pose_range": TWO_CUBE_POSE_RANGE,
             "fixed_cube_z": 0.05,
             "cube_colors": {"cube_1": "blue", "cube_2": "red"},
-            "min_cube_separation": 0.08,
+            # Cubes are 2 cm wide, so 7 cm between centres leaves a 5 cm gap for the jaws.
+            "min_cube_separation": 0.07,
             "min_plate_clearance": 0.12,
         },
     )
