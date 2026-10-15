@@ -130,11 +130,17 @@ def cube_placed_on_plate(
     plate_local_y_max: float = 0.1,
     plate_local_z_min: float = 0.0,
     plate_local_z_max: float = 0.08,
+    restrict_to_target: bool = False,
 ) -> torch.Tensor:
     """Pure position check: is the cube's center within the plate's local
     footprint (with a small inward margin) and at a plausible resting height
     above the plate surface? No contact force, no grasp state, no velocity
     check -- just 'is the cube geometrically on the plate right now'.
+
+    `restrict_to_target=True` (two-cube task) checks only `env.target_cube_name`
+    instead of every name in `cubes`, so placing the distractor cube does not
+    count -- only the cube named in the episode's instruction does. Falls back
+    to the full `cubes` list if `env.target_cube_name` isn't set.
 
     Returns:
         Boolean tensor of shape (num_envs, 1).
@@ -143,10 +149,16 @@ def cube_placed_on_plate(
     plate_pos_w = plate.data.root_pos_w        # (num_envs, 3), world frame
     plate_quat_w = plate.data.root_quat_w      # (num_envs, 4), world frame
 
-    # Any cube in `cubes` counts -- OR across cubes.
+    active_cubes = cubes
+    if restrict_to_target:
+        target = getattr(env, "target_cube_name", None)
+        if target is not None:
+            active_cubes = [target]
+
+    # Any cube in `active_cubes` counts -- OR across cubes.
     any_on_plate = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
 
-    for cube_name in cubes:
+    for cube_name in active_cubes:
         cube = env.scene[cube_name]
         cube_pos_w = cube.data.root_pos_w      # (num_envs, 3)
 
@@ -181,6 +193,7 @@ def cube_placed_on_plate_termination(
     plate_local_z_min: float = 0.0,
     plate_local_z_max: float = 0.03,
     hold_steps: int = 300,
+    restrict_to_target: bool = False,
 ) -> torch.Tensor:
     num_envs = env.num_envs
     device = env.device
@@ -195,6 +208,7 @@ def cube_placed_on_plate_termination(
         plate_local_y_max=plate_local_y_max,
         plate_local_z_min=plate_local_z_min,
         plate_local_z_max=plate_local_z_max,
+        restrict_to_target=restrict_to_target,
     ).squeeze(-1)
 
     if not hasattr(env, "_plate_success_counter"):
@@ -216,14 +230,16 @@ def cube_placed_on_plate_termination(
     just_placed = env._plate_success_counter == 1
     if just_placed.any():
         env_ids = torch.where(just_placed)[0].tolist()
-        names_str = ", ".join(cubes)
+        reported = [getattr(env, "target_cube_name", None)] if restrict_to_target and getattr(env, "target_cube_name", None) else cubes
+        names_str = ", ".join(reported)
         print(f"[PLATE] Cube(s) [{names_str}] placed on plate in env(s): {env_ids}")
 
     # 2. PRINT: Exactly once when the hold time is met and episode terminates
     just_terminated = env._plate_success_counter == hold_steps
     if just_terminated.any():
         env_ids = torch.where(just_terminated)[0].tolist()
-        names_str = ", ".join(cubes)
+        reported = [getattr(env, "target_cube_name", None)] if restrict_to_target and getattr(env, "target_cube_name", None) else cubes
+        names_str = ", ".join(reported)
         print(f"[PLATE] SUCCESS! Cube(s) [{names_str}] held for {hold_steps} steps. Terminating env(s): {env_ids}")
 
     confirmed = trigger & (env._plate_success_counter >= hold_steps)

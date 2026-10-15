@@ -95,3 +95,23 @@ gym.register(
     },
 )
 
+
+gym.register(
+    id="Lerobot-So101-Teleop-TwoCubes-To-Plate-DR",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.cubes_to_plate_env_cfg:TwoCubesToPlateDREnvCfg",
+    },
+)
+
+
+gym.register(
+    id="Lerobot-So101-Teleop-TwoCubes-To-Plate-DR-Eval",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.cubes_to_plate_env_cfg:TwoCubesToPlateEvalDREnvCfg",
+    },
+)
+

@@ -46,13 +46,24 @@ success rate, for example:
 A try is a **success** when the cube stays on the plate for about 3 seconds. If that does not
 happen within 30 seconds, the try counts as a **timeout** (a failure) and the next one starts.
 
+**Press N** (click the Isaac Sim window first) to end a try early and count it as a failure —
+useful when a try is clearly going wrong and you don't want to wait out the full 30 seconds.
+
+## Two-cube task
+
+Use `--task Lerobot-So101-Teleop-TwoCubes-To-Plate-DR-Eval` to test on the two-cube task (a blue
+cube_1 and a red cube_2, one picked at random each try as the target). The terminal prints which
+one before each try, for example `[INFO]: This episode's target: pick up the red cube and place
+it on the plate`, and the correct sentence is sent to the model automatically — you don't need to
+set `--policy_task` yourself. A try only succeeds if the model places the **named** cube.
+
 ## Options
 
 **Simulator (`lerobot_eval.py`):**
 
 | Option | Default | What it does |
 |---|---|---|
-| `--task` | — | Scene name. Use `Lerobot-So101-Teleop-Cubes-To-Plate-DR-Eval` |
+| `--task` | — | Scene name. Use `Lerobot-So101-Teleop-Cubes-To-Plate-DR-Eval`, or `Lerobot-So101-Teleop-TwoCubes-To-Plate-DR-Eval` for the two-cube task |
 | `--num_episodes` | `5` | Number of tries |
 | `--max_episode_s` | `30` | Seconds before a try counts as a failure ("timeout") |
 | `--seed` | `1984` | Same seed gives the same random scenes, so you can compare models fairly |

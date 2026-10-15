@@ -24,6 +24,31 @@ ROBOT_COLORS = {
     "black": (0.08, 0.08, 0.08),
 }
 
+# Fixed per-identity cube colors for the two-cube task: cube_1 keeps the
+# original cube.usda color (close to "blue"), cube_2 gets a clearly
+# distinguishable color so the recorded/sent instruction ("pick up the red
+# cube...") is unambiguous to both the operator and the camera.
+CUBE_COLORS = {
+    "blue": (0.0, 0.20077229, 1.0),  # matches cube.usda's default diffuse_color_constant
+    "red": (0.9, 0.05, 0.05),
+}
+
+
+def set_cube_color(
+    env,
+    env_ids: torch.Tensor | None,
+    cube_name: str,
+    color_name: str,
+):
+    """Set a fixed (non-random) color on one cube. Intended as a `mode="startup"`
+    event, so cube identity <-> color stays constant across every episode."""
+    selected_color = CUBE_COLORS[color_name]
+    with Sdf.ChangeBlock():
+        cube = env.scene[cube_name]
+        material_prim_path = cube.cfg.prim_path + "/Looks/cube_color/Shader"
+        material_prim = sim_utils.find_matching_prims(material_prim_path)[0]
+        material_prim.GetAttribute("inputs:diffuse_color_constant").Set(selected_color)
+
 
 def randomize_robot_color(env, 
     env_ids: torch.Tensor | None,
@@ -337,3 +362,102 @@ def reset_cubes_plate(
             _, _ = random_asset_pose(env, env_ids, v, pose_range_z_fixed, pos_offset)
             zero_velocity = torch.zeros((len(env_ids), 6), device=v.device)
             v.write_root_velocity_to_sim(zero_velocity, env_ids=env_ids)
+
+
+def _sample_candidate_pose(env, env_ids, asset, pose_range, pos_offset):
+    """Same math as `random_asset_pose`, but only proposes a position/orientation
+    without writing it to sim -- lets `reset_two_cubes_plate` reject a draw
+    (too close to another cube or the plate) before committing it."""
+    root_states = asset.data.default_root_state[env_ids].clone()
+    pos_offset_list = [pos_offset.get(key, 0.0) for key in ["x", "y", "z"]]
+    pos_offset_t = torch.tensor(pos_offset_list, device=asset.device)
+    range_list = [
+        pose_range.get(key, (0.0, 0.0))
+        for key in ["x", "y", "z", "roll", "pitch", "yaw"]
+    ]
+    ranges = torch.tensor(range_list, device=asset.device)
+    rand_samples = math_utils.sample_uniform(
+        ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=asset.device
+    )
+    positions = (
+        root_states[:, 0:3]
+        + env.scene.env_origins[env_ids]
+        + rand_samples[:, 0:3]
+        + pos_offset_t
+    )
+    orientations_delta = math_utils.quat_from_euler_xyz(
+        rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5]
+    )
+    orientations = math_utils.quat_mul(root_states[:, 3:7], orientations_delta)
+    return positions, orientations
+
+
+def reset_two_cubes_plate(
+    env,
+    env_ids: torch.Tensor,
+    cubes: list[str],
+    plate: str,
+    plate_pose_range: dict[str, tuple[float, float]],
+    pose_range: dict[str, tuple[float, float]],
+    fixed_cube_z: float,
+    cube_colors: dict[str, str],
+    min_cube_separation: float = 0.08,
+    min_plate_clearance: float = 0.12,
+    max_resample_attempts: int = 50,
+):
+    """Place >= 2 cubes for the two-cube pick task.
+
+    Every cube is drawn from the SAME `pose_range` (cube_1 and cube_2 share
+    the same default anchor in TwoCubesToPlateSceneCfg), so cube identity is
+    not correlated with spawn position -- the policy can't shortcut "always
+    grab the one on the left" instead of using the instruction/color. A draw
+    that puts two cubes (or a cube and the plate) closer than the given
+    clearances is rejected and resampled, up to `max_resample_attempts`
+    (falls back to the last draw if that's exhausted, rather than hanging).
+
+    One cube is then chosen at random as this episode's target: its name and
+    color are stored on `env.target_cube_name` / `env.target_cube_color` for
+    the recording/eval scripts to build the instruction, and for the
+    target-only termination check (see `restrict_to_target` in terms.py).
+    """
+    cube_objects: list[RigidObject] = [env.scene[name] for name in cubes]
+    plate_obj = env.scene[plate]
+
+    new_plate_positions, new_plate_orientations = random_asset_pose(env, env_ids, plate_obj, plate_pose_range, {})
+    zero_velocity = torch.zeros((len(env_ids), 6), device=plate_obj.device)
+    plate_obj.write_root_velocity_to_sim(zero_velocity, env_ids=env_ids)
+
+    pose_range_z_fixed = {**pose_range, "z": (0.0, 0.0)}
+    accepted_positions: list[torch.Tensor] = []
+
+    for cube in cube_objects:
+        default_z = cube.data.default_root_state[env_ids[0], 2].item()
+        pos_offset = {"z": fixed_cube_z - default_z}
+
+        candidate_pos, candidate_quat = None, None
+        for attempt in range(max_resample_attempts):
+            candidate_pos, candidate_quat = _sample_candidate_pose(
+                env, env_ids, cube, pose_range_z_fixed, pos_offset
+            )
+            ok = torch.ones(len(env_ids), dtype=torch.bool, device=cube.device)
+            for other_pos in accepted_positions:
+                dist = torch.linalg.norm(candidate_pos[:, :2] - other_pos[:, :2], dim=-1)
+                ok &= dist >= min_cube_separation
+            plate_dist = torch.linalg.norm(candidate_pos[:, :2] - new_plate_positions[:, :2], dim=-1)
+            ok &= plate_dist >= min_plate_clearance
+            if bool(ok.all()):
+                break
+        else:
+            print(f"[WARN] reset_two_cubes_plate: kept closest-fit draw for "
+                  f"{cube.cfg.prim_path} after {max_resample_attempts} attempts.")
+
+        cube.write_root_pose_to_sim(torch.cat([candidate_pos, candidate_quat], dim=-1), env_ids=env_ids)
+        zero_velocity = torch.zeros((len(env_ids), 6), device=cube.device)
+        cube.write_root_velocity_to_sim(zero_velocity, env_ids=env_ids)
+        accepted_positions.append(candidate_pos)
+
+    target_idx = torch.randint(0, len(cubes), (1,), device="cpu").item()
+    target_name = cubes[target_idx]
+    env.target_cube_name = target_name
+    env.target_cube_color = cube_colors.get(target_name)
+    print(f"[INFO]: Episode target cube: {target_name} ({env.target_cube_color})")

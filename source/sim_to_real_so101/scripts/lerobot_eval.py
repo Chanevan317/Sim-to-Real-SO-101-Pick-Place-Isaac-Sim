@@ -58,6 +58,18 @@ import sim_to_real_so101.tasks  # noqa: F401
 
 from sim_to_real_so101.utils.joint_conversion import make_degree_converters
 from sim_to_real_so101.utils.policy_client import PolicyClient
+from sim_to_real_so101.utils.sim_keys import SimKeys
+
+
+def instruction_for_current_episode(env, default_task):
+    """Two-cube task: build the instruction from the target cube the reset
+    event just picked, so the policy is told which cube to go for. Falls
+    back to --policy_task for tasks that don't set target_cube_color (e.g.
+    the single-cube task)."""
+    color = getattr(env.unwrapped, "target_cube_color", None)
+    if color is None:
+        return default_task
+    return f"pick up the {color} cube and place it on the plate"
 
 
 def prep_image(img_hwc_uint8: np.ndarray) -> np.ndarray:
@@ -103,7 +115,13 @@ def main():
     # --- connect to the ACT policy server (running in the `lerobot` env) ---
     policy = PolicyClient(host=args_cli.policy_host, port=args_cli.policy_port)
 
+    keys = SimKeys()
+    print("[INFO]: Press N (Isaac Sim window must have focus) to skip a bad episode now, counted as a failure.")
+
     obs, _ = env.reset()
+    episode_task = instruction_for_current_episode(env, args_cli.policy_task)
+    if episode_task != args_cli.policy_task:
+        print(f"[INFO]: This episode's target: {episode_task}")
 
     actions = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
     initial_action = torch.tensor(
@@ -143,7 +161,7 @@ def main():
 
                 action_real_deg = policy.get_action(
                     state_real_deg, image_ego, image_external,
-                    task=args_cli.policy_task, reset=(step == 10),
+                    task=episode_task, reset=(step == 10),
                 )
                 # print(f"[CLIENT] step={step} state_real_deg={state_real_deg} "
                 #     f"action_real_deg={action_real_deg}")
@@ -162,23 +180,27 @@ def main():
             is_truncated = truncated.item() if truncated.numel() == 1 else truncated.any().item()
 
             timed_out = step >= max_steps
+            skipped = keys.pop("N")
 
-            if is_terminated or is_truncated or timed_out:
+            if is_terminated or is_truncated or timed_out or skipped:
                 if pbar is not None:
                     pbar.close()
                     pbar = None
 
                 num_episodes += 1
-                success = is_terminated and not is_truncated
+                success = is_terminated and not is_truncated and not skipped
                 num_successes += int(success)
                 success_rate = (num_successes / num_episodes) * 100
-                result = "success" if success else ("timeout" if timed_out else "failure")
+                result = "success" if success else ("skipped" if skipped else ("timeout" if timed_out else "failure"))
                 print(f"[INFO]: Episode {num_episodes}: {result} after {step * env.unwrapped.step_dt:.1f} s")
 
                 if num_episodes >= args_cli.num_episodes:
                     break
 
                 obs, _ = env.reset()
+                episode_task = instruction_for_current_episode(env, args_cli.policy_task)
+                if episode_task != args_cli.policy_task:
+                    print(f"[INFO]: This episode's target: {episode_task}")
                 step = 0
 
     print(f"[INFO]: Evaluated {num_episodes} episodes")

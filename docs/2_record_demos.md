@@ -42,6 +42,24 @@ Run it from this folder, so the recordings go where the next step expects them:
 3. The try is **saved automatically** as `episode_0000.h5`, `episode_0001.h5`, and so on.
 4. The scene resets with a new random look and new cube position, and you can do the next try.
 
+## Two-cube task (teaching the model to pick the right one)
+
+`Lerobot-So101-Teleop-TwoCubes-To-Plate-DR` puts **two** cubes on the table instead of one: a
+**blue** cube_1 and a **red** cube_2, each spawned at a random spot over a wider area. Every
+episode, one of them is picked at random as the one to move; the terminal prints which one, for
+example:
+
+```
+[INFO]: This episode's target: pick up the red cube and place it on the plate
+```
+
+Only move **that** cube. The other one is a distractor — leave it alone. This is what teaches the
+model to actually look at which cube it's told to grab, instead of always going for "the cube"
+(there's only ever one in the single-cube task, so it never has to choose). The episode only
+counts as placed when the **named** cube reaches the plate; placing the wrong one does nothing.
+
+## Keys
+
 ## Keys
 
 Click the Isaac Sim window first, so it receives the key presses.
@@ -82,6 +100,8 @@ moves. If a replay puts the cube on the plate, the recording is good training da
 python scripts/replay_episode.py --task Lerobot-So101-Teleop-Cubes-To-Plate --episodes "raw_teleop_data/*.h5"
 ```
 
+(use `--task Lerobot-So101-Teleop-TwoCubes-To-Plate-DR` for two-cube recordings)
+
 At the end it prints how many recordings work, for example `48/50 recordings replay successfully`.
 Add `--headless` to run without a window. This only works for recordings made with the current
 script; older ones are skipped.
@@ -90,7 +110,7 @@ script; older ones are skipped.
 
 | Option | Default | What it does |
 |---|---|---|
-| `--task` | (required) | Scene name. Use `Lerobot-So101-Teleop-Cubes-To-Plate-DR` |
+| `--task` | (required) | Scene name. Use `Lerobot-So101-Teleop-Cubes-To-Plate-DR`, or `Lerobot-So101-Teleop-TwoCubes-To-Plate-DR` for the two-cube task |
 | `--leader_port` | `/dev/ttyACM0` | Port of the leader arm |
 | `--output_dir` | `./raw_teleop_data` | Where recordings are saved |
 
@@ -103,6 +123,7 @@ script; older ones are skipped.
 | `observation.images.ego` | Pictures from the camera on the gripper |
 | `observation.images.external_D455` | Pictures from the fixed camera in front |
 | `initial_pose.cube_1`, `initial_pose.plate_left` | Where the cube and plate started (used by the replay check) |
+| `instruction` | Two-cube task only: which cube was the target this episode, as the sentence sent to the model |
 
 The recording runs at **60 frames per second**, and this is saved in the file.
 

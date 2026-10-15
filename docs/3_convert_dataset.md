@@ -26,7 +26,7 @@ python convert_sim_data.py --max_episodes 5 --output_dir ./lerobot_dataset_test
 |---|---|---|
 | `--raw_dir` | `../source/sim_to_real_so101/raw_teleop_data` | Folder with the `.h5` files |
 | `--output_dir` | `./lerobot_dataset` | Where the dataset is written. It must not exist yet |
-| `--task` | `pick up the cube and place it on the plate` | Sentence that describes the task. GR00T reads it |
+| `--task` | `pick up the cube and place it on the plate` | Fallback sentence for recordings that don't carry their own (single-cube task). GR00T reads it. Two-cube recordings store a per-episode sentence ("pick up the red/blue cube...") and use that instead, automatically |
 | `--max_episodes` | all | Use only the first N recordings |
 | `--fps` | read from the recordings (60) | Frames per second of the dataset. Old recordings without this info use 30 |
 

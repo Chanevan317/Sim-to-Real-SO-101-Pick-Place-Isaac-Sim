@@ -18,9 +18,11 @@ from sim_to_real_so101 import assets
 from sim_to_real_so101.assets.so101 import S0101_CONTACT_GRASP_CFG
 from sim_to_real_so101.mdp import (
     reset_cubes_plate,
+    reset_two_cubes_plate,
     randomize_sky_light,
     ROBOT_COLORS,
     randomize_robot_color,
+    set_cube_color,
     any_cube_grasped,
     cube_placed_on_plate,
     cube_placed_on_plate_termination,
@@ -125,6 +127,32 @@ class CubesToPlateDRSceneCfg(CubesToPlateSceneCfg):
 
 
 @configclass
+class TwoCubesToPlateDRSceneCfg(CubesToPlateDRSceneCfg):
+    """Two-cube variant: cube_2 shares cube_1's default anchor on purpose, so
+    reset_two_cubes_plate's shared pose_range gives both cubes the same
+    absolute spawn distribution -- position alone can't give away which one
+    is the target, only color/instruction can."""
+
+    cube_2 = cube.replace()
+    cube_2.prim_path = "{ENV_REGEX_NS}/Cube_2"
+    cube_2.init_state.pos = (0.23, -0.08, CUBE_SPAWN_Z)
+    cube_2.init_state.rot = euler_angles_to_quat(np.array([0, 90, 0]), degrees=True)
+
+    # Contact sensor must list both cubes (order matches the `cubes` list
+    # passed to any_cube_grasped) or cube_2 grasps are silently never detected.
+    contact_grasp = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/jaw",
+        update_period=0.0,
+        history_length=1,
+        debug_vis=False,
+        filter_prim_paths_expr=[
+            "{ENV_REGEX_NS}/Cube_1",
+            "{ENV_REGEX_NS}/Cube_2",
+        ],
+    )
+
+
+@configclass
 class CubesToPlateEventCfg(TaskEventCfg):
     """Configuration for events."""
 
@@ -158,6 +186,75 @@ class CubesToPlateEventCfg(TaskEventCfg):
 
 @configclass
 class CubesToPlateEventDRCfg(CubesToPlateEventCfg):
+
+    reset_set_robot_visual_material = EventTerm(
+        func=randomize_robot_color,
+        mode="reset",
+        params={
+            "color_names": list(ROBOT_COLORS.keys()),
+        },
+    )
+
+    reset_sky_light = EventTerm(
+        func=randomize_sky_light,
+        mode="reset",
+        params={
+            "exposure_range": (-4.0, 3.0),
+            "temperature_range": (2500.0, 9500.0),
+            "textures_root": f"{assets_path}/hdri",
+            "asset_cfg": SceneEntityCfg("sky_light"),
+        },
+    )
+
+
+# Spawn region shared by both cubes in the two-cube task, as an offset from
+# their shared default anchor (0.23, -0.08). Deliberately nests inside the
+# y in [-0.16, 0.0] / x~0.23 span this file's original (commented-out)
+# cube_2/cube_3 anchors already staked out, so it's wider than the original
+# single-cube range (more grasp-position variety) without reaching into
+# unverified territory. reset_two_cubes_plate rejects draws that put the two
+# cubes, or a cube and the plate, closer than min_cube_separation /
+# min_plate_clearance.
+TWO_CUBE_POSE_RANGE = {
+    "x": (-0.06, 0.06),
+    "y": (-0.08, 0.08),
+    "roll": (-0.3, 0.3),
+    "yaw": (0.0, 0.0),
+}
+
+
+@configclass
+class TwoCubesToPlateEventCfg(TaskEventCfg):
+    """Configuration for events (two-cube variant)."""
+
+    reset_cube_2_color = EventTerm(
+        func=set_cube_color,
+        mode="startup",
+        params={"cube_name": "cube_2", "color_name": "red"},
+    )
+
+    reset_cubes_setup = EventTerm(
+        func=reset_two_cubes_plate,
+        mode="reset",
+        params={
+            "cubes": ["cube_1", "cube_2"],
+            "plate": "plate_left",
+            "plate_pose_range": {
+                "x": (-0.04, 0.04),
+                "y": (0.08, 0.1),
+                "yaw": (-0.5, 0.5),
+            },
+            "pose_range": TWO_CUBE_POSE_RANGE,
+            "fixed_cube_z": 0.05,
+            "cube_colors": {"cube_1": "blue", "cube_2": "red"},
+            "min_cube_separation": 0.08,
+            "min_plate_clearance": 0.12,
+        },
+    )
+
+
+@configclass
+class TwoCubesToPlateEventDRCfg(TwoCubesToPlateEventCfg):
 
     reset_set_robot_visual_material = EventTerm(
         func=randomize_robot_color,
@@ -239,6 +336,47 @@ class CubesToPlateObservationsCfg(TaskObservationsCfg):
 
 
 @configclass
+class TwoCubesToPlateObservationsCfg(TaskObservationsCfg):
+    """Configuration for observations (two-cube variant)."""
+
+    @configclass
+    class SubtaskCfg(ObsGroup):
+        """Observations for subtask tracking."""
+
+        cube_grasped = ObsTerm(
+            func=any_cube_grasped,
+            params={
+                "contact_sensor_cfg": SceneEntityCfg("contact_grasp"),
+                "cubes": ["cube_1", "cube_2"],
+                "min_height": 0.055,
+                "warmup_steps": 30,
+                "force_threshold": 2,  # N
+            },
+        )
+
+        cube_placed = ObsTerm(
+            func=cube_placed_on_plate,
+            params={
+                "cubes": ["cube_1", "cube_2"],
+                "plate_name": "plate_left",
+                "plate_local_x_min": -0.1,
+                "plate_local_x_max": 0.1,
+                "plate_local_y_min": -0.1,
+                "plate_local_y_max": 0.1,
+                "plate_local_z_max": 0.1,
+                # Only the instructed cube counts -- see restrict_to_target in terms.py.
+                "restrict_to_target": True,
+            },
+        )
+
+        def __post_init__(self) -> None:
+            self.enable_corruption = False
+            self.concatenate_terms = False
+
+    subtask_terms: SubtaskCfg = SubtaskCfg()
+
+
+@configclass
 class CubesToPlateTerminationsCfg:
     """Termination terms for the cubes to tray evaluation task.
 
@@ -288,6 +426,27 @@ class CubesToPlateTerminationsCfg:
     )
 
 
+@configclass
+class TwoCubesToPlateTerminationsCfg:
+    """Success-only (see CubesToPlateTerminationsCfg's docstring). Only the
+    episode's instructed cube counts -- restrict_to_target=True."""
+
+    success = DoneTerm(
+        func=cube_placed_on_plate_termination,
+        time_out=False,
+        params={
+            "cubes": ["cube_1", "cube_2"],
+            "plate_name": "plate_left",
+            "plate_local_x_min": -0.1,
+            "plate_local_x_max": 0.1,
+            "plate_local_y_min": -0.1,
+            "plate_local_y_max": 0.1,
+            "plate_local_z_max": 0.1,
+            "hold_steps": 180,
+            "restrict_to_target": True,
+        },
+    )
+
 
 @configclass
 class CubesToPlateEnvCfg(SO101TaskEnvCfg):
@@ -308,6 +467,25 @@ class CubesToPlateDREnvCfg(CubesToPlateEnvCfg):
     scene: CubesToPlateDRSceneCfg = CubesToPlateDRSceneCfg()
     events: CubesToPlateEventDRCfg = CubesToPlateEventDRCfg()
 
+
+@configclass
+class TwoCubesToPlateDREnvCfg(CubesToPlateEnvCfg):
+    """
+    Two-cube domain randomization config: cube_1 (blue) and cube_2 (red), one
+    picked at random each episode as the instructed target, the other left
+    as a distractor. Success requires only the target cube on the plate.
+    """
+    scene: TwoCubesToPlateDRSceneCfg = TwoCubesToPlateDRSceneCfg()
+    events: TwoCubesToPlateEventDRCfg = TwoCubesToPlateEventDRCfg()
+    observations: TwoCubesToPlateObservationsCfg = TwoCubesToPlateObservationsCfg()
+    terminations: TwoCubesToPlateTerminationsCfg = TwoCubesToPlateTerminationsCfg()
+
+
+@configclass
+class TwoCubesToPlateEvalDREnvCfg(TwoCubesToPlateDREnvCfg):
+    """
+    Eval config for the two-cube task.
+    """
 
 
 @configclass

@@ -69,6 +69,10 @@ class RawHdf5Recorder:
         self.states = []
         self.images = {}
         self.initial_poses = {}
+        # Per-episode language instruction (two-cube task only). Left None
+        # for tasks that don't set it, so convert_sim_data.py's --task
+        # default keeps working unchanged for single-cube recordings.
+        self.instruction = None
 
     def start_episode(self, scene):
         """Remember where every rigid object (cube, plate) starts, relative to
@@ -99,6 +103,8 @@ class RawHdf5Recorder:
         with h5py.File(tmp_path, "w") as f:
             f.attrs["task_name"] = self.task_name
             f.attrs["fps"] = self.fps
+            if self.instruction is not None:
+                f.attrs["instruction"] = self.instruction
             # action = leader arm command (joint targets), not the measured follower position
             f.attrs["action_source"] = "leader_command"
             f.create_dataset("action", data=np.array(self.actions, dtype=np.float32))
@@ -121,6 +127,17 @@ class RawHdf5Recorder:
         self.reset_buffers()
 
 
+def instruction_for_current_episode(env):
+    """Two-cube task: build the per-episode instruction from the target cube
+    the reset event just picked. Returns None for tasks that don't set
+    target_cube_color (e.g. the single-cube task), so the caller's recorder
+    falls back to its session-wide task_name as before."""
+    color = getattr(env.unwrapped, "target_cube_color", None)
+    if color is None:
+        return None
+    return f"pick up the {color} cube and place it on the plate"
+
+
 def main():
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=1, use_fabric=True)
     env = gym.make(args_cli.task, cfg=env_cfg)
@@ -134,6 +151,9 @@ def main():
 
     fps = round(1.0 / env.unwrapped.step_dt)
     recorder = RawHdf5Recorder(args_cli.output_dir, args_cli.task_name, fps)
+    recorder.instruction = instruction_for_current_episode(env)
+    if recorder.instruction is not None:
+        print(f"[INFO]: This episode's target: {recorder.instruction}")
     recorder.start_episode(scene)
 
     try:
@@ -161,6 +181,9 @@ def main():
 
     def reset_episode():
         new_obs, _ = env.reset()
+        recorder.instruction = instruction_for_current_episode(env)
+        if recorder.instruction is not None:
+            print(f"[INFO]: This episode's target: {recorder.instruction}")
         recorder.start_episode(scene)
         return new_obs
 

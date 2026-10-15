@@ -137,8 +137,15 @@ def convert(raw_dir: Path, output_dir: Path, repo_id: str, task_description: str
     )
 
     for i, ep_path in enumerate(episode_files):
-        print(f"[{i + 1}/{len(episode_files)}] Converting {ep_path.name} ...")
         with h5py.File(ep_path, "r") as f:
+            # Two-cube recordings store a per-episode instruction (which cube
+            # was the target); other recordings fall back to --task as before.
+            episode_task = f.attrs.get("instruction", task_description)
+            if isinstance(episode_task, bytes):
+                episode_task = episode_task.decode("utf-8")
+            suffix = f" -- task: {episode_task}" if episode_task != task_description else ""
+            print(f"[{i + 1}/{len(episode_files)}] Converting {ep_path.name} ...{suffix}")
+
             actions = f["action"][:]
             states = f["observation.state"][:]
             images = {
@@ -161,7 +168,7 @@ def convert(raw_dir: Path, output_dir: Path, repo_id: str, task_description: str
                 frame = {
                     "observation.state": states[t].astype(np.float32),
                     "action": actions[t].astype(np.float32),
-                    "task": task_description,
+                    "task": episode_task,
                 }
                 for feat_name in IMAGE_KEYS:
                     frame[feat_name] = images[feat_name][t]
