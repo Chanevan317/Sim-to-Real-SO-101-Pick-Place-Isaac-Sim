@@ -131,12 +131,29 @@ class TwoCubesToPlateDRSceneCfg(CubesToPlateDRSceneCfg):
     """Two-cube variant: cube_2 shares cube_1's default anchor on purpose, so
     reset_two_cubes_plate's shared pose_range gives both cubes the same
     absolute spawn distribution -- position alone can't give away which one
-    is the target, only color/instruction can."""
+    is the target, only color/instruction can.
+
+    Cubes and plate swap sides compared with the single-cube task: the cubes
+    are on the external camera's side and the plate is where the cube used to
+    be. In a sim comparison (10 episodes per layout) this made the cubes ~50%
+    larger in the external camera and kept the target visible at grasp time
+    more often (median 42% visible vs 0%: in the old layout the gripper sits
+    between the camera and the cube). The plate looks half as large but is
+    still by far the largest object in view."""
+
+    cube_1 = cube.replace()
+    cube_1.prim_path = "{ENV_REGEX_NS}/Cube_1"
+    cube_1.init_state.pos = (0.17, 0.13, CUBE_SPAWN_Z)
+    cube_1.init_state.rot = euler_angles_to_quat(np.array([0, 90, 0]), degrees=True)
 
     cube_2 = cube.replace()
     cube_2.prim_path = "{ENV_REGEX_NS}/Cube_2"
-    cube_2.init_state.pos = (0.23, -0.08, CUBE_SPAWN_Z)
+    cube_2.init_state.pos = (0.17, 0.13, CUBE_SPAWN_Z)
     cube_2.init_state.rot = euler_angles_to_quat(np.array([0, 90, 0]), degrees=True)
+
+    plate_left = plate.replace()
+    plate_left.prim_path = "{ENV_REGEX_NS}/Plate_Left"
+    plate_left.init_state.pos = (0.20, -0.09, 0.0275)
 
     # Contact sensor must list both cubes (order matches the `cubes` list
     # passed to any_cube_grasped) or cube_2 grasps are silently never detected.
@@ -208,19 +225,19 @@ class CubesToPlateEventDRCfg(CubesToPlateEventCfg):
 
 
 # Spawn region shared by both cubes in the two-cube task, as an offset from
-# their shared default anchor (0.23, -0.08): cube centres land in
-# x [0.17, 0.23], y [-0.15, -0.01]. Sized from the arm's reach: a forward-
+# their shared default anchor (0.17, 0.13): cube centres land in
+# x [0.13, 0.21], y [0.06, 0.20]. Sized from the arm's reach: a forward-
 # kinematics sweep (all joints >= 10 deg from their limits) allows a steep,
 # top-down grasp at cube height up to ~0.32 m from the pan axis at
 # (-0.027, 0.021); the old single-cube demos already reached 0.317 m. The far
-# corner here is 0.308 m away (grasp ~20 deg from vertical), leaving a margin.
-# The box is long in y so two cubes still fit min_cube_separation apart:
-# reset_two_cubes_plate only resamples the second cube, and in a squarer box
-# it often found no free spot and kept an overlapping draw.
+# corner here is 0.297 m away, leaving a margin. The box is long in y so two
+# cubes still fit min_cube_separation apart: reset_two_cubes_plate only
+# resamples the second cube, and in a squarer box it often found no free spot
+# and kept an overlapping draw.
 # reset_two_cubes_plate rejects draws that put the two cubes, or a cube and
 # the plate, closer than min_cube_separation / min_plate_clearance.
 TWO_CUBE_POSE_RANGE = {
-    "x": (-0.06, 0.0),
+    "x": (-0.04, 0.04),
     "y": (-0.07, 0.07),
     "roll": (-0.3, 0.3),
     "yaw": (0.0, 0.0),
@@ -243,9 +260,11 @@ class TwoCubesToPlateEventCfg(TaskEventCfg):
         params={
             "cubes": ["cube_1", "cube_2"],
             "plate": "plate_left",
+            # Plate centre lands in x [0.16, 0.24], y [-0.10, -0.08] (anchor
+            # (0.20, -0.09)): the same spread as the single-cube task.
             "plate_pose_range": {
                 "x": (-0.04, 0.04),
-                "y": (0.08, 0.1),
+                "y": (-0.01, 0.01),
                 "yaw": (-0.5, 0.5),
             },
             "pose_range": TWO_CUBE_POSE_RANGE,

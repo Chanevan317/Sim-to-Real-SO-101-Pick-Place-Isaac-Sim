@@ -32,6 +32,7 @@ from sim_to_real_so101.utils.joint_conversion import make_degree_converters
 from sim_to_real_so101.utils.leader_arm import JOINT_NAMES, LeaderArm, leader_to_sim_radians, load_calibration
 from sim_to_real_so101.utils.sim_keys import SimKeys
 from sim_to_real_so101.utils.viewport_label import ViewportLabel
+from sim_to_real_so101.utils.viewport_view import VIEW_PATH, save_current_view
 
 
 class RawHdf5Recorder:
@@ -152,18 +153,19 @@ def main():
 
     fps = round(1.0 / env.unwrapped.step_dt)
     recorder = RawHdf5Recorder(args_cli.output_dir, args_cli.task_name, fps)
-    # Two-cube task: show this episode's target cube in the viewport (UI only,
-    # not seen by the recorded cameras).
+    # Current episode number and (two-cube task) target cube in the viewport. UI only,
+    # not seen by the recorded cameras.
     label = ViewportLabel()
 
-    def announce_target():
+    def update_episode_info():
+        label.set_episode(recorder.episode_idx)
         recorder.instruction = instruction_for_current_episode(env)
         if recorder.instruction is not None:
             print(f"[INFO]: This episode's target: {recorder.instruction}")
             color = env.unwrapped.target_cube_color
-            label.set(f"TARGET: {color.upper()} cube", color)
+            label.set_target(f"TARGET: {color.upper()} cube", color)
 
-    announce_target()
+    update_episode_info()
     recorder.start_episode(scene)
 
     try:
@@ -182,8 +184,8 @@ def main():
 
     keys = SimKeys()
     print(f"[INFO]: Recording at {fps} Hz. Episodes are saved automatically when the cube is placed.")
-    print("[INFO]: Keys (click the Isaac Sim window first): N = save now, X = discard and restart. "
-          "Ctrl+C in the terminal to quit.")
+    print("[INFO]: Keys (click the Isaac Sim window first): N = save now, X = discard and restart, "
+          "V = save the current view as the default. Ctrl+C in the terminal to quit.")
 
     robot = scene["robot"]
     leader_joint_ids = [robot.joint_names.index(name) for name in JOINT_NAMES]
@@ -191,7 +193,7 @@ def main():
 
     def reset_episode():
         new_obs, _ = env.reset()
-        announce_target()
+        update_episode_info()
         recorder.start_episode(scene)
         return new_obs
 
@@ -229,6 +231,13 @@ def main():
                 recorder.discard_episode()
                 obs = reset_episode()
                 continue
+
+            if keys.pop("V"):
+                try:
+                    view = save_current_view()
+                    print(f"\n[INFO]: Saved this view as the default ({VIEW_PATH.name}): {view}")
+                except Exception as e:
+                    print(f"\n[WARNING]: Could not save the view ({e}).")
 
             if terminations.any():
                 recorder.save_episode()

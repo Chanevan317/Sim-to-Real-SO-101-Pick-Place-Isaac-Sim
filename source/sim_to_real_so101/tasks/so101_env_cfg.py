@@ -15,6 +15,7 @@ from isaaclab.utils import configclass
 from sim_to_real_so101.assets.so101 import SO101_CFG
 
 from sim_to_real_so101 import assets
+from sim_to_real_so101.utils.viewport_view import load_view
 from sim_to_real_so101.mdp import (
     JointPositionActionCfg,
     joint_pos,
@@ -162,6 +163,10 @@ class SO101TeleopEnvCfg(ManagerBasedRLEnvCfg):
         # viewer settings
         self.viewer.eye = (-0.25, -0.4, 0.22)
         self.viewer.lookat = (0.15, 0.0, 0.12)
+        # A view saved with V in teleop_so101.py (viewport_view.json) replaces it.
+        saved_view = load_view()
+        if saved_view is not None:
+            self.viewer.eye, self.viewer.lookat = saved_view
         # simulation settings
         self.sim.dt = 1 / 120
         self.sim.render_interval = self.decimation

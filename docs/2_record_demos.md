@@ -54,8 +54,10 @@ example:
 ```
 
 The sim window also shows it in the top-right corner, for example **TARGET: RED cube** in red.
-This label is only on your screen: the robot's cameras do not see it, so it is not in the
-recordings.
+Next to it, **Episode 0012** is the number of the try you are recording, the same as the file
+it will be saved as (`episode_0012.h5`). It continues from the recordings already in the folder.
+These labels are only on your screen: the robot's cameras do not see
+them, so they are not in the recordings.
 
 Only move **that** cube. The other one is a distractor — leave it alone. This is what teaches the
 model to actually look at which cube it's told to grab, instead of always going for "the cube"
@@ -72,6 +74,7 @@ Click the Isaac Sim window first, so it receives the key presses.
 |---|---|
 | **X** | Throw away the current try and start a new one (use it when you drop the cube or make a mistake) |
 | **N** | Save the current try now and start a new one |
+| **V** | Save the current view of the sim window as the default. Every sim window (recording, calibration, replay, testing) then opens with this view. It is stored in `source/sim_to_real_so101/viewport_view.json` |
 | **Ctrl+C** (in the terminal) | Quit |
 
 If you run the script again later, it keeps counting from the last file, so nothing is
