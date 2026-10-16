@@ -505,15 +505,25 @@ def reset_two_cubes_layouts(
 
     Then one cube is chosen at random as this episode's target, stored with the layout name on
     `env.target_cube_name` / `env.target_cube_color` / `env.layout_name`.
+
+    A caller can ask for a specific layout and/or target cube for the next reset by setting
+    `env.requested_layout` / `env.requested_target` (a cube name); each request is used once.
+    teleop_so101.py does this to keep the recorded episodes balanced; eval leaves them unset.
     """
     cube_objects: list[RigidObject] = [env.scene[name] for name in cubes]
     plate_obj = env.scene[plate]
     layout_names = list(layouts)
+    requested_layout = getattr(env, "requested_layout", None)
+    requested_target = getattr(env, "requested_target", None)
+    env.requested_layout = env.requested_target = None
 
     for env_id in env_ids.tolist():
         ids = torch.tensor([env_id], device=plate_obj.device)
         origin = env.scene.env_origins[env_id]
-        layout_name = layout_names[torch.randint(0, len(layout_names), (1,)).item()]
+        if requested_layout in layouts:
+            layout_name = requested_layout
+        else:
+            layout_name = layout_names[torch.randint(0, len(layout_names), (1,)).item()]
         layout = layouts[layout_name]
         regions = layout["cube_regions"]
 
@@ -561,7 +571,10 @@ def reset_two_cubes_layouts(
             cube.write_root_pose_to_sim(torch.cat([cube_pos.unsqueeze(0), cube_quat], dim=-1), env_ids=ids)
             cube.write_root_velocity_to_sim(zero_velocity, env_ids=ids)
 
-    target_name = cubes[torch.randint(0, len(cubes), (1,)).item()]
+    if requested_target in cubes:
+        target_name = requested_target
+    else:
+        target_name = cubes[torch.randint(0, len(cubes), (1,)).item()]
     env.target_cube_name = target_name
     env.target_cube_color = cube_colors.get(target_name)
     env.layout_name = layout_name

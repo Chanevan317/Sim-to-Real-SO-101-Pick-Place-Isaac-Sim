@@ -27,6 +27,7 @@ import torch
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 import sim_to_real_so101.tasks  # noqa: F401
+from sim_to_real_so101.utils.episode_balance import EpisodeBalancer
 from sim_to_real_so101.utils.h5_compress import TMP_SUFFIX, CompressionQueue
 from sim_to_real_so101.utils.joint_conversion import make_degree_converters
 from sim_to_real_so101.utils.leader_arm import JOINT_NAMES, LeaderArm, leader_to_sim_radians, load_calibration
@@ -148,6 +149,27 @@ def main():
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=1, use_fabric=True)
     env = gym.make(args_cli.task, cfg=env_cfg)
     scene = env.unwrapped.scene
+
+    # Two-cube task: keep the recordings balanced over layout x target colour by asking each
+    # reset for one of the least-recorded combinations in the output folder.
+    reset_term = getattr(env_cfg.events, "reset_cubes_setup", None)
+    reset_params = reset_term.params if reset_term is not None else {}
+    balancer = None
+    if "layouts" in reset_params:
+        balancer = EpisodeBalancer(args_cli.output_dir, reset_params["layouts"], reset_params["cube_colors"])
+    balance_note = ""
+
+    def request_balanced_episode():
+        nonlocal balance_note
+        if balancer is None:
+            return
+        layout, color, counts = balancer.next()
+        env.unwrapped.requested_layout = layout
+        env.unwrapped.requested_target = balancer.cube_for_color[color]
+        balance_note = (f"{layout} / {color}: {counts[(layout, color)]} recorded so far, the fewest. "
+                        f"All: {balancer.summary(counts)}")
+
+    request_balanced_episode()
     obs, _ = env.reset()
 
     sim_radians_to_real_degrees, real_degrees_to_sim_radians = make_degree_converters(env.unwrapped.device)
@@ -167,6 +189,8 @@ def main():
         recorder.layout = getattr(env.unwrapped, "layout_name", None)
         if recorder.instruction is not None:
             print(f"[INFO]: This episode's target: {recorder.instruction}")
+            if balance_note:
+                print(f"[INFO]: Balancing: {balance_note}")
             color = env.unwrapped.target_cube_color
             label.set_target(f"TARGET: {color.upper()} cube", color)
 
@@ -197,6 +221,7 @@ def main():
     joint_limits = robot.data.soft_joint_pos_limits[0]
 
     def reset_episode():
+        request_balanced_episode()
         new_obs, _ = env.reset()
         update_episode_info()
         recorder.start_episode(scene)

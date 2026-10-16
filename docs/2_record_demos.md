@@ -53,8 +53,8 @@ also changes between three layouts, picked at random every episode:
 - the plate in the middle, with one cube on each side.
 
 This teaches the model to look for the plate too, instead of always moving to the same place.
-Every episode, one of the cubes is picked at random as the one to move; the terminal prints
-which one, for example:
+Every episode, one of the cubes is picked as the one to move; the terminal prints which one, for
+example:
 
 ```
 [INFO]: This episode's target: pick up the red cube and place it on the plate
@@ -104,6 +104,24 @@ python -m sim_to_real_so101.utils.h5_compress raw_teleop_data
 - **Throw away bad tries with X:** a dropped cube, a bump into the wall, a long pause. The
   model copies everything in the recordings, including mistakes.
 - **Move smoothly and at a steady speed.**
+- **Let go before saving:** put the cube on the plate, **open the gripper and lift the arm a few
+  centimetres**, then press **N** (or wait for the automatic save). If you press N while still
+  holding the cube, the model never sees the release and will not let go.
+
+### Balanced recordings (two-cube task)
+
+The recording script keeps the episodes even across the 3 layouts and the 2 target colours.
+Before each try, it counts what is already saved in the output folder and gives you one of the
+layout and colour combinations with the fewest episodes. The terminal shows the counts, for
+example:
+
+```
+[INFO]: Balancing: far_side / blue: 6 recorded so far, the fewest. All: camera_side 85/78 · far_side 6/10 · plate_middle 39/32 (blue/red)
+```
+
+Tries you throw away with **X** leave no file, so a hard layout keeps coming back until it has as
+many episodes as the others. Testing a model (`lerobot_eval.py`) still picks layouts and colours
+at random.
 
 ## Check your recordings (optional)
 
