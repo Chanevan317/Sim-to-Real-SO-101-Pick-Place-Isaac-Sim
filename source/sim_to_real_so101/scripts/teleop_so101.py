@@ -75,6 +75,8 @@ class RawHdf5Recorder:
         # for tasks that don't set it, so convert_sim_data.py's --task
         # default keeps working unchanged for single-cube recordings.
         self.instruction = None
+        # Scene layout of the episode (two-cube task only), kept for analysis.
+        self.layout = None
 
     def start_episode(self, scene):
         """Remember where every rigid object (cube, plate) starts, relative to
@@ -107,6 +109,8 @@ class RawHdf5Recorder:
             f.attrs["fps"] = self.fps
             if self.instruction is not None:
                 f.attrs["instruction"] = self.instruction
+            if self.layout is not None:
+                f.attrs["layout"] = self.layout
             # action = leader arm command (joint targets), not the measured follower position
             f.attrs["action_source"] = "leader_command"
             f.create_dataset("action", data=np.array(self.actions, dtype=np.float32))
@@ -160,6 +164,7 @@ def main():
     def update_episode_info():
         label.set_episode(recorder.episode_idx)
         recorder.instruction = instruction_for_current_episode(env)
+        recorder.layout = getattr(env.unwrapped, "layout_name", None)
         if recorder.instruction is not None:
             print(f"[INFO]: This episode's target: {recorder.instruction}")
             color = env.unwrapped.target_cube_color

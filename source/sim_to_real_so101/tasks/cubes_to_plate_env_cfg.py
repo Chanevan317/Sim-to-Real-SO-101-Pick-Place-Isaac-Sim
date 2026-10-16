@@ -18,7 +18,7 @@ from sim_to_real_so101 import assets
 from sim_to_real_so101.assets.so101 import S0101_CONTACT_GRASP_CFG
 from sim_to_real_so101.mdp import (
     reset_cubes_plate,
-    reset_two_cubes_plate,
+    reset_two_cubes_layouts,
     randomize_sky_light,
     ROBOT_COLORS,
     randomize_robot_color,
@@ -128,18 +128,11 @@ class CubesToPlateDRSceneCfg(CubesToPlateSceneCfg):
 
 @configclass
 class TwoCubesToPlateDRSceneCfg(CubesToPlateDRSceneCfg):
-    """Two-cube variant: cube_2 shares cube_1's default anchor on purpose, so
-    reset_two_cubes_plate's shared pose_range gives both cubes the same
-    absolute spawn distribution -- position alone can't give away which one
-    is the target, only color/instruction can.
-
-    Cubes and plate swap sides compared with the single-cube task: the cubes
-    are on the external camera's side and the plate is where the cube used to
-    be. In a sim comparison (10 episodes per layout) this made the cubes ~50%
-    larger in the external camera and kept the target visible at grasp time
-    more often (median 42% visible vs 0%: in the old layout the gripper sits
-    between the camera and the cube). The plate looks half as large but is
-    still by far the largest object in view."""
+    """Two-cube variant. Every reset places the plate and both cubes from one of
+    TWO_CUBE_LAYOUTS (reset_two_cubes_layouts); the init positions below only
+    give the default height and orientation. Both cubes share the same regions,
+    so position alone can't give away which one is the target, only
+    color/instruction can."""
 
     cube_1 = cube.replace()
     cube_1.prim_path = "{ENV_REGEX_NS}/Cube_1"
@@ -224,23 +217,37 @@ class CubesToPlateEventDRCfg(CubesToPlateEventCfg):
     )
 
 
-# Spawn region shared by both cubes in the two-cube task, as an offset from
-# their shared default anchor (0.17, 0.13): cube centres land in
-# x [0.13, 0.21], y [0.06, 0.20]. Sized from the arm's reach: a forward-
-# kinematics sweep (all joints >= 10 deg from their limits) allows a steep,
-# top-down grasp at cube height up to ~0.32 m from the pan axis at
-# (-0.027, 0.021); the old single-cube demos already reached 0.317 m. The far
-# corner here is 0.297 m away, leaving a margin. The box is long in y so two
-# cubes still fit min_cube_separation apart: reset_two_cubes_plate only
-# resamples the second cube, and in a squarer box it often found no free spot
-# and kept an overlapping draw.
-# reset_two_cubes_plate rejects draws that put the two cubes, or a cube and
-# the plate, closer than min_cube_separation / min_plate_clearance.
-TWO_CUBE_POSE_RANGE = {
-    "x": (-0.04, 0.04),
-    "y": (-0.07, 0.07),
-    "roll": (-0.3, 0.3),
-    "yaw": (0.0, 0.0),
+# Scene layouts of the two-cube task, in env-frame coordinates (metres /
+# radians); reset_two_cubes_layouts picks one at random every episode, so the
+# policy has to find the plate and the named cube instead of replaying one
+# fixed motion. +y is the external camera's side (left of the robot).
+#   camera_side: cubes near the camera, plate on the far side. A sim comparison
+#                found the cubes ~50% larger in the external camera and the
+#                target visible at grasp time far more often (median 42% vs 0%)
+#                than with the cubes on the far side.
+#   far_side:    the opposite: cubes on the far side, plate where the
+#                single-cube task has it.
+#   plate_middle: plate in the middle, one cube on each side (in random order).
+# Sized from the arm's reach: a forward-kinematics sweep (all joints >= 10 deg
+# from their limits) allows a steep, top-down grasp at cube height up to
+# ~0.32 m from the pan axis at (-0.027, 0.021). Every cube region here stays
+# within 0.304 m, every plate centre within 0.293 m. Cubes keep 7 cm between
+# centres and a 3 cm gap to the plate walls (draws are redrawn until they do).
+TWO_CUBE_LAYOUTS = {
+    "camera_side": {
+        "plate": {"x": (0.16, 0.24), "y": (-0.10, -0.08), "yaw": (-0.5, 0.5)},
+        "cube_regions": [{"x": (0.13, 0.21), "y": (0.06, 0.20)}],
+    },
+    "far_side": {
+        "plate": {"x": (0.14, 0.22), "y": (0.16, 0.18), "yaw": (-0.5, 0.5)},
+        "cube_regions": [{"x": (0.13, 0.21), "y": (-0.17, -0.04)}],
+    },
+    "plate_middle": {
+        # Little yaw: a rotated plate would leave too little room for the cubes beside it.
+        "plate": {"x": (0.16, 0.24), "y": (0.00, 0.02), "yaw": (-0.15, 0.15)},
+        "cube_regions": [{"x": (0.13, 0.21), "y": (0.15, 0.21)}, {"x": (0.13, 0.19), "y": (-0.19, -0.13)}],
+        "one_cube_per_region": True,
+    },
 }
 
 
@@ -255,24 +262,17 @@ class TwoCubesToPlateEventCfg(TaskEventCfg):
     )
 
     reset_cubes_setup = EventTerm(
-        func=reset_two_cubes_plate,
+        func=reset_two_cubes_layouts,
         mode="reset",
         params={
             "cubes": ["cube_1", "cube_2"],
             "plate": "plate_left",
-            # Plate centre lands in x [0.16, 0.24], y [-0.10, -0.08] (anchor
-            # (0.20, -0.09)): the same spread as the single-cube task.
-            "plate_pose_range": {
-                "x": (-0.04, 0.04),
-                "y": (-0.01, 0.01),
-                "yaw": (-0.5, 0.5),
-            },
-            "pose_range": TWO_CUBE_POSE_RANGE,
+            "layouts": TWO_CUBE_LAYOUTS,
             "fixed_cube_z": 0.05,
             "cube_colors": {"cube_1": "blue", "cube_2": "red"},
             # Cubes are 2 cm wide, so 7 cm between centres leaves a 5 cm gap for the jaws.
             "min_cube_separation": 0.07,
-            "min_plate_clearance": 0.12,
+            "min_plate_gap": 0.03,
         },
     )
 

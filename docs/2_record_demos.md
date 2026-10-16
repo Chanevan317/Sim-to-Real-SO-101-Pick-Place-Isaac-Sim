@@ -45,9 +45,16 @@ Run it from this folder, so the recordings go where the next step expects them:
 ## Two-cube task (teaching the model to pick the right one)
 
 `Lerobot-So101-Teleop-TwoCubes-To-Plate-DR` puts **two** cubes on the table instead of one: a
-**blue** cube_1 and a **red** cube_2, each spawned at a random spot over a wider area. Every
-episode, one of them is picked at random as the one to move; the terminal prints which one, for
-example:
+**blue** cube_1 and a **red** cube_2, each spawned at a random spot over a wider area. The scene
+also changes between three layouts, picked at random every episode:
+
+- the cubes near the camera and the plate on the far side;
+- the opposite: the cubes on the far side and the plate near the camera;
+- the plate in the middle, with one cube on each side.
+
+This teaches the model to look for the plate too, instead of always moving to the same place.
+Every episode, one of the cubes is picked at random as the one to move; the terminal prints
+which one, for example:
 
 ```
 [INFO]: This episode's target: pick up the red cube and place it on the plate

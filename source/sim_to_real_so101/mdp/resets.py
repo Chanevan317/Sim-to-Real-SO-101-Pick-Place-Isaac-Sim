@@ -461,3 +461,108 @@ def reset_two_cubes_plate(
     env.target_cube_name = target_name
     env.target_cube_color = cube_colors.get(target_name)
     print(f"[INFO]: Episode target cube: {target_name} ({env.target_cube_color})")
+
+
+def _uniform(lo_hi):
+    lo, hi = lo_hi
+    return lo + (hi - lo) * torch.rand(1).item()
+
+
+def _gap_to_square(point_xy, centre_xy, yaw, half_size, cube_half_size):
+    """Free space between a cube (centre `point_xy`) and a square plate rotated by `yaw`.
+    Conservative: measured from the cube's half-diagonal, so any cube rotation fits."""
+    dx, dy = point_xy[0] - centre_xy[0], point_xy[1] - centre_xy[1]
+    c, s = math.cos(-yaw), math.sin(-yaw)
+    lx, ly = c * dx - s * dy, s * dx + c * dy
+    outside = math.hypot(max(abs(lx) - half_size, 0.0), max(abs(ly) - half_size, 0.0))
+    return outside - cube_half_size * math.sqrt(2)
+
+
+def reset_two_cubes_layouts(
+    env,
+    env_ids: torch.Tensor,
+    cubes: list[str],
+    plate: str,
+    layouts: dict[str, dict],
+    fixed_cube_z: float,
+    cube_colors: dict[str, str],
+    cube_roll_range: tuple[float, float] = (-0.3, 0.3),
+    min_cube_separation: float = 0.07,
+    min_plate_gap: float = 0.03,
+    plate_half_size: float = 0.10,
+    cube_half_size: float = 0.01,
+    max_attempts: int = 100,
+):
+    """Two-cube pick task with several scene layouts: each reset picks one layout at random.
+
+    A layout gives, in env-frame coordinates (metres / radians):
+      "plate":        {"x": (min, max), "y": (min, max), "yaw": (min, max)} for the plate centre;
+      "cube_regions": list of {"x": ..., "y": ...} boxes for the cube centres;
+      "one_cube_per_region": True puts each cube in its own region (in random order), e.g. one
+                      cube on each side of the plate; False draws every cube from the first region.
+    Plate and cubes are drawn together and redrawn until the cubes are `min_cube_separation`
+    apart and leave `min_plate_gap` of free space to the plate walls.
+
+    Then one cube is chosen at random as this episode's target, stored with the layout name on
+    `env.target_cube_name` / `env.target_cube_color` / `env.layout_name`.
+    """
+    cube_objects: list[RigidObject] = [env.scene[name] for name in cubes]
+    plate_obj = env.scene[plate]
+    layout_names = list(layouts)
+
+    for env_id in env_ids.tolist():
+        ids = torch.tensor([env_id], device=plate_obj.device)
+        origin = env.scene.env_origins[env_id]
+        layout_name = layout_names[torch.randint(0, len(layout_names), (1,)).item()]
+        layout = layouts[layout_name]
+        regions = layout["cube_regions"]
+
+        for _ in range(max_attempts):
+            plate_xy = (_uniform(layout["plate"]["x"]), _uniform(layout["plate"]["y"]))
+            plate_yaw = _uniform(layout["plate"].get("yaw", (0.0, 0.0)))
+            if layout.get("one_cube_per_region", False):
+                order = torch.randperm(len(regions))[: len(cubes)].tolist()
+                cube_regions = [regions[i] for i in order]
+            else:
+                cube_regions = [regions[0]] * len(cubes)
+            cube_xy = [(_uniform(r["x"]), _uniform(r["y"])) for r in cube_regions]
+            far_apart = all(
+                math.dist(cube_xy[i], cube_xy[j]) >= min_cube_separation
+                for i in range(len(cube_xy)) for j in range(i + 1, len(cube_xy))
+            )
+            clear_of_plate = all(
+                _gap_to_square(xy, plate_xy, plate_yaw, plate_half_size, cube_half_size) >= min_plate_gap
+                for xy in cube_xy
+            )
+            if far_apart and clear_of_plate:
+                break
+        else:
+            print(f"[WARN] reset_two_cubes_layouts: kept the last draw of layout {layout_name!r} "
+                  f"after {max_attempts} attempts.")
+
+        zero_velocity = torch.zeros((1, 6), device=plate_obj.device)
+        plate_state = plate_obj.data.default_root_state[env_id].clone()
+        plate_pos = torch.tensor([plate_xy[0], plate_xy[1], plate_state[2].item()], device=plate_obj.device) + origin
+        plate_quat = math_utils.quat_mul(
+            plate_state[3:7].unsqueeze(0),
+            math_utils.quat_from_euler_xyz(*(torch.tensor([v], device=plate_obj.device) for v in (0.0, 0.0, plate_yaw))),
+        )
+        plate_obj.write_root_pose_to_sim(torch.cat([plate_pos.unsqueeze(0), plate_quat], dim=-1), env_ids=ids)
+        plate_obj.write_root_velocity_to_sim(zero_velocity, env_ids=ids)
+
+        for cube, xy in zip(cube_objects, cube_xy):
+            cube_state = cube.data.default_root_state[env_id].clone()
+            cube_pos = torch.tensor([xy[0], xy[1], fixed_cube_z], device=cube.device) + origin
+            roll = _uniform(cube_roll_range)
+            cube_quat = math_utils.quat_mul(
+                cube_state[3:7].unsqueeze(0),
+                math_utils.quat_from_euler_xyz(*(torch.tensor([v], device=cube.device) for v in (roll, 0.0, 0.0))),
+            )
+            cube.write_root_pose_to_sim(torch.cat([cube_pos.unsqueeze(0), cube_quat], dim=-1), env_ids=ids)
+            cube.write_root_velocity_to_sim(zero_velocity, env_ids=ids)
+
+    target_name = cubes[torch.randint(0, len(cubes), (1,)).item()]
+    env.target_cube_name = target_name
+    env.target_cube_color = cube_colors.get(target_name)
+    env.layout_name = layout_name
+    print(f"[INFO]: Episode layout: {layout_name}, target cube: {target_name} ({env.target_cube_color})")
