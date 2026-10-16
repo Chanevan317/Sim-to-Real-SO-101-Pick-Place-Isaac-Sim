@@ -123,6 +123,35 @@ Tries you throw away with **X** leave no file, so a hard layout keeps coming bac
 many episodes as the others. Testing a model (`lerobot_eval.py`) still picks layouts and colours
 at random.
 
+## Review your recordings in the browser
+
+A small web page lets you watch every recording, look at the joints and delete bad tries. It
+works in either environment (`lerobot_env` or `env_isaaclab`), also while you are still recording:
+
+```bash
+conda activate lerobot_env    # or env_isaaclab
+cd ~/Documents/chan_evan/Sim-to-Real-SO-101-Pick-Place-Isaac-Sim/lerobot/review
+python review_data.py --raw_dir ../../source/sim_to_real_so101/raw_teleop_data_twocubes
+```
+
+Then open http://127.0.0.1:8000 in your browser.
+
+- **Left:** all episodes, with filters for the layout and the target cube.
+- **Video:** the scene camera, the wrist camera, or both side by side.
+- **Plots:** the 6 joints. The solid line is where the joint was, the dashed line is what you
+  commanded. On the **gripper** plot, a dashed line below the solid one while holding the cube
+  means you squeezed firmly: that is what you want.
+- **Top:** how many episodes you have, their total length, and red/blue and layout counts.
+- **Flag** marks a bad try; **Delete flagged** removes all flagged tries at once.
+- **Delete** moves an episode to `_trash/` inside the folder. Use the **Trash** button to restore it,
+  or to delete the trash for good. The converter ignores the trash folder.
+
+Keys: **Space** play/pause, **←/→** one frame (**Shift** 10 frames), **↑/↓** previous/next episode,
+**1/2/3** scene/wrist/both cameras, **F** flag, **D** delete.
+
+The first time you open an episode, its video takes a few seconds to prepare. The videos are
+kept in `~/.cache/so101_review` (safe to delete). Episodes still compressing are shown greyed out.
+
 ## Check your recordings (optional)
 
 This replays recordings in the simulator, without any model: same cube and plate positions, same

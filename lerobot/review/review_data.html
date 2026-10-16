@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Episode Review</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #677085; --line: #dde1e8;
+    --accent: #2f6fdb; --accent-text: #ffffff; --danger: #c93a3a; --warn: #b7791f;
+    --red: #d63b3b; --blue: #2f6fdb; --state: #2f6fdb; --action: #e07b24; --cursor: #1d2330;
+    --row-hover: #eef2f8; --row-active: #dfe8f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --muted: #98a1b3; --line: #2e343f;
+      --accent: #5b8ff0; --accent-text: #0e1116; --danger: #ef6b6b; --warn: #e0a74a;
+      --red: #f06a6a; --blue: #6f9cf3; --state: #6f9cf3; --action: #f0a050; --cursor: #e6e9ef;
+      --row-hover: #252a33; --row-active: #2b3546;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  button, select { font: inherit; color: inherit; }
+  button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.danger { color: var(--danger); border-color: var(--danger); }
+  button.on { background: var(--warn); color: #fff; border-color: var(--warn); }
+  select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  .chip { color: var(--muted); white-space: nowrap; }
+  .chip b { color: var(--text); font-weight: 600; }
+  .spacer { flex: 1; }
+  main { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 56px); }
+  aside { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); }
+  .filters label { display: flex; align-items: center; gap: 6px; color: var(--muted); grid-column: span 2; }
+  #list { overflow-y: auto; flex: 1; }
+  .row { display: grid; grid-template-columns: 52px 1fr auto; gap: 6px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .row:hover { background: var(--row-hover); }
+  .row.active { background: var(--row-active); }
+  .row.disabled { opacity: .5; cursor: default; }
+  .row .num { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .row .meta { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .flag { color: var(--warn); font-weight: 700; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: baseline; }
+  section.viewer { overflow-y: auto; padding: 14px 18px; min-width: 0; }
+  .title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 10px; }
+  .title h2 { margin: 0; font-size: 18px; }
+  .title .muted { color: var(--muted); }
+  .videos { display: grid; gap: 8px; grid-template-columns: 1fr; max-width: 980px; }
+  .videos.both { grid-template-columns: 1fr 1fr; max-width: 1400px; }
+  .vbox { position: relative; background: #000; border-radius: 6px; overflow: hidden; aspect-ratio: 4 / 3; }
+  .vbox video { width: 100%; height: 100%; display: block; }
+  .vbox .cap { position: absolute; left: 8px; top: 6px; color: #fff; background: rgba(0,0,0,.55); padding: 1px 7px; border-radius: 4px; font-size: 12px; }
+  .vbox .wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ddd; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; max-width: 1400px; }
+  .controls input[type=range] { flex: 1; min-width: 200px; }
+  .fcount { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 170px; }
+  .plots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; max-width: 1400px; }
+  .plot { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  .plot.gripper { border-color: var(--action); }
+  .plot .pname { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+  .plot .stack { position: relative; height: 110px; }
+  .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+  .legend { color: var(--muted); font-size: 12px; margin: 14px 0 6px; }
+  .swatch { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--state); vertical-align: middle; margin: 0 4px 0 10px; }
+  .swatch.dash { border-top: 2px dashed var(--action); }
+  .help { color: var(--muted); font-size: 12px; margin-top: 14px; }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 11px; background: var(--panel); }
+  .empty { padding: 40px; color: var(--muted); }
+  #trashPanel { position: fixed; right: 16px; top: 64px; width: 340px; max-height: 70vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.25); padding: 12px; display: none; z-index: 5; }
+  #trashPanel .trow { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; display: none; z-index: 10; }
+  @media (max-width: 800px) {
+    main { grid-template-columns: 1fr; height: auto; }
+    aside { max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--line); }
+    .videos.both, .plots { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Episode review</h1>
+  <span class="chip" id="countChip"></span>
+  <span class="chip" id="minutesChip"></span>
+  <span class="chip" id="targetChip"></span>
+  <span class="chip" id="layoutChip"></span>
+  <span class="chip" id="busyChip"></span>
+  <span class="spacer"></span>
+  <button class="danger" id="deleteFlaggedBtn" disabled>Delete flagged</button>
+  <button id="trashBtn">Trash</button>
+</header>
+<main>
+  <aside>
+    <div class="filters">
+      <select id="layoutFilter" title="Layout"></select>
+      <select id="targetFilter" title="Target cube">
+        <option value="">All targets</option><option value="red">Red target</option><option value="blue">Blue target</option>
+      </select>
+      <select id="sortBy" title="Sort">
+        <option value="index">Sort: number</option><option value="long">Sort: longest first</option><option value="short">Sort: shortest first</option>
+      </select>
+      <label><input type="checkbox" id="flaggedOnly"> Flagged only</label>
+    </div>
+    <div id="list"></div>
+  </aside>
+  <section class="viewer" id="viewer">
+    <div class="empty" id="emptyMsg">No episodes in this folder yet.</div>
+    <div id="player" hidden>
+      <div class="title">
+        <h2 id="epTitle"></h2>
+        <span id="epInstruction"></span>
+        <span class="muted" id="epMeta"></span>
+      </div>
+      <div class="videos" id="videos"></div>
+      <div class="controls">
+        <button class="primary" id="playBtn">Play</button>
+        <input type="range" id="slider" min="0" value="0">
+        <span class="fcount" id="frameLabel"></span>
+        <select id="speed" title="Playback speed">
+          <option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option>
+        </select>
+        <select id="camMode" title="Camera"></select>
+        <button id="prevBtn" title="Previous episode (↑)">◀ Prev</button>
+        <button id="nextBtn" title="Next episode (↓)">Next ▶</button>
+        <button id="flagBtn" title="Flag as bad (F)">Flag</button>
+        <button class="danger" id="deleteBtn" title="Move to trash (D)">Delete</button>
+      </div>
+      <div class="legend">Joints in LeRobot units:<span class="swatch"></span>recorded state<span class="swatch dash"></span>action (leader command). Click a plot to jump there.</div>
+      <div class="plots" id="plots"></div>
+      <div class="help">
+        <kbd>Space</kbd> play/pause · <kbd>←</kbd>/<kbd>→</kbd> one frame (<kbd>Shift</kbd> 10 frames) · <kbd>↑</kbd>/<kbd>↓</kbd> previous/next episode ·
+        <kbd>1</kbd> scene <kbd>2</kbd> wrist <kbd>3</kbd> both · <kbd>F</kbd> flag · <kbd>D</kbd> delete
+      </div>
+    </div>
+  </section>
+</main>
+<div id="trashPanel"></div>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const CAM_LABELS = { external_D455: "Scene camera", ego: "Wrist camera" };
+let data = { episodes: [], trash: [] };
+let current = null;        // episode row being shown
+let joints = null;         // {names, fps, state, action}
+let videos = [];           // visible <video> elements, videos[0] drives the others
+let camMode = localGet("camMode") || "both";
+
+function localGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function localSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", 2500); }
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const pad = (n) => String(n).padStart(4, "0");
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// ---------- list ----------
+async function refresh(keepSelection = true) {
+  data = await api("/api/episodes");
+  renderSummary();
+  renderLayoutFilter();
+  renderList();
+  renderTrash();
+  if (!keepSelection || !current || !data.episodes.some((e) => e.name === current.name && e.status === "ok")) {
+    const first = visibleEpisodes().find((e) => e.status === "ok");
+    if (first) select(first.name); else showEmpty();
+  } else {
+    current = data.episodes.find((e) => e.name === current.name);
+    $("flagBtn").classList.toggle("on", current.flagged);
+  }
+}
+
+function renderSummary() {
+  const ok = data.episodes.filter((e) => e.status === "ok");
+  $("countChip").innerHTML = `<b>${ok.length}</b> episodes`;
+  const minutes = ok.reduce((s, e) => s + e.seconds, 0) / 60;
+  $("minutesChip").innerHTML = `<b>${minutes.toFixed(1)}</b> min`;
+  const count = (key, val) => ok.filter((e) => e[key] === val).length;
+  const hasTargets = ok.some((e) => e.target);
+  $("targetChip").innerHTML = hasTargets
+    ? `<span class="dot" style="background:var(--red)"></span><b>${count("target", "red")}</b> red · <span class="dot" style="background:var(--blue)"></span><b>${count("target", "blue")}</b> blue` : "";
+  const layouts = [...new Set(ok.map((e) => e.layout).filter(Boolean))].sort();
+  $("layoutChip").innerHTML = layouts.map((l) => `${l} <b>${count("layout", l)}</b>`).join(" · ");
+  const busy = data.episodes.filter((e) => e.status === "compressing").length;
+  const flagged = ok.filter((e) => e.flagged).length;
+  $("busyChip").innerHTML = [busy ? `<b>${busy}</b> compressing` : "", flagged ? `<b>${flagged}</b> flagged` : ""].filter(Boolean).join(" · ");
+  $("deleteFlaggedBtn").disabled = !flagged;
+  $("deleteFlaggedBtn").textContent = flagged ? `Delete flagged (${flagged})` : "Delete flagged";
+  $("trashBtn").textContent = data.trash.length ? `Trash (${data.trash.length})` : "Trash";
+}
+
+function renderLayoutFilter() {
+  const sel = $("layoutFilter"), keep = sel.value;
+  const layouts = [...new Set(data.episodes.map((e) => e.layout).filter(Boolean))].sort();
+  sel.innerHTML = `<option value="">All layouts</option>` + layouts.map((l) => `<option>${l}</option>`).join("");
+  sel.value = layouts.includes(keep) ? keep : "";
+  sel.disabled = !layouts.length;
+}
+
+function visibleEpisodes() {
+  const lay = $("layoutFilter").value, tgt = $("targetFilter").value, fl = $("flaggedOnly").checked, sort = $("sortBy").value;
+  let rows = data.episodes.filter((e) => (!lay || e.layout === lay) && (!tgt || e.target === tgt) && (!fl || e.flagged));
+  if (sort === "long") rows = [...rows].sort((a, b) => b.seconds - a.seconds);
+  if (sort === "short") rows = [...rows].sort((a, b) => a.seconds - b.seconds);
+  return rows;
+}
+
+function renderList() {
+  const list = $("list"), scroll = list.scrollTop;
+  list.innerHTML = "";
+  for (const e of visibleEpisodes()) {
+    const row = document.createElement("div");
+    row.className = "row" + (current && e.name === current.name ? " active" : "") + (e.status !== "ok" ? " disabled" : "");
+    const dot = e.target ? `<span class="dot" style="background:var(--${e.target})"></span>` : "";
+    const meta = e.status === "compressing" ? "compressing…" : e.status === "error" ? "unreadable file" :
+      `${dot}${e.target || ""}${e.layout ? " · " + e.layout : ""} · ${e.seconds.toFixed(1)} s`;
+    row.innerHTML = `<span class="num">${pad(e.index)}</span><span class="meta">${meta}</span><span class="flag">${e.flagged ? "⚑" : ""}</span>`;
+    if (e.status === "ok") row.onclick = () => select(e.name);
+    if (e.status === "error") row.title = e.error;
+    list.appendChild(row);
+  }
+  list.scrollTop = scroll;
+}
+
+// ---------- player ----------
+function showEmpty() {
+  current = null; $("player").hidden = true; $("emptyMsg").hidden = false;
+  $("emptyMsg").textContent = data.episodes.length ? "No episode matches the filters." : "No episodes in this folder yet.";
+  for (const v of videos) v.removeAttribute("src");
+  videos = []; $("videos").innerHTML = "";
+}
+
+async function select(name) {
+  const e = data.episodes.find((x) => x.name === name);
+  if (!e || e.status !== "ok") return;
+  current = e;
+  $("emptyMsg").hidden = true; $("player").hidden = false;
+  $("epTitle").textContent = `Episode ${pad(e.index)}`;
+  $("epInstruction").innerHTML = e.instruction
+    ? `<span class="dot" style="background:var(--${e.target || "muted"})"></span>${e.instruction}` : "";
+  $("epMeta").textContent = [e.layout, `${e.frames} frames`, `${e.seconds.toFixed(1)} s at ${e.fps} fps`, `${e.size_mb} MB`].filter(Boolean).join(" · ");
+  $("flagBtn").classList.toggle("on", e.flagged);
+  $("slider").max = e.frames - 1; $("slider").value = 0;
+  renderCamOptions(); buildVideos(); renderList();
+  joints = null; $("plots").innerHTML = "";
+  try { joints = await api(`/api/joints/${e.name}`); if (current && current.name === e.name) buildPlots(); }
+  catch (err) { toast("Could not load joints: " + err.message); }
+}
+
+function renderCamOptions() {
+  const cams = current.cameras;
+  const opts = cams.map((c) => [c, CAM_LABELS[c] || c]);
+  if (cams.length > 1) opts.push(["both", "Both cameras"]);
+  if (!opts.some(([v]) => v === camMode)) camMode = cams.length > 1 ? "both" : cams[0];
+  $("camMode").innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  $("camMode").value = camMode;
+}
+
+function buildVideos() {
+  for (const v of videos) { v.pause(); v.removeAttribute("src"); v.load(); }
+  const box = $("videos"); box.innerHTML = "";
+  const order = (c) => (c === "external_D455" ? 0 : c === "ego" ? 1 : 2);  // scene camera first
+  const cams = camMode === "both" ? [...current.cameras].sort((a, b) => order(a) - order(b)) : [camMode];
+  box.className = "videos" + (cams.length > 1 ? " both" : "");
+  videos = cams.map((cam) => {
+    const wrap = document.createElement("div"); wrap.className = "vbox";
+    wrap.innerHTML = `<div class="wait">Preparing video…</div><span class="cap">${CAM_LABELS[cam] || cam}</span>`;
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.preload = "auto";
+    v.playbackRate = Number($("speed").value);
+    v.addEventListener("loadeddata", () => { wrap.querySelector(".wait").remove(); }, { once: true });
+    v.addEventListener("error", () => { const w = wrap.querySelector(".wait"); if (w) w.textContent = "Could not load this video."; });
+    v.src = `/video/${current.name}/${cam}.mp4`;
+    wrap.prepend(v); box.appendChild(wrap);
+    return v;
+  });
+  videos[0].addEventListener("ended", () => { $("playBtn").textContent = "Play"; for (const v of videos.slice(1)) v.pause(); });
+  $("playBtn").textContent = "Play";
+}
+
+function frameOf(t) { return Math.max(0, Math.min(current.frames - 1, Math.floor(t * current.fps + 1e-3))); }
+function seekFrame(f) {
+  if (!current || !videos.length) return;
+  f = Math.max(0, Math.min(current.frames - 1, f));
+  for (const v of videos) { v.pause(); v.currentTime = (f + 0.5) / current.fps; }
+  $("playBtn").textContent = "Play";
+}
+function togglePlay() {
+  if (!videos.length) return;
+  const m = videos[0];
+  if (m.paused) {
+    if (m.ended || frameOf(m.currentTime) >= current.frames - 1) for (const v of videos) v.currentTime = 0;
+    for (const v of videos) v.play().catch(() => {});
+    $("playBtn").textContent = "Pause";
+  } else { for (const v of videos) v.pause(); $("playBtn").textContent = "Play"; }
+}
+
+function tick() {
+  if (current && videos.length) {
+    const m = videos[0], t = m.currentTime, f = frameOf(t);
+    for (const v of videos.slice(1)) if (Math.abs(v.currentTime - t) > 1.5 / current.fps) v.currentTime = t;
+    if (document.activeElement !== $("slider")) $("slider").value = f;
+    $("frameLabel").textContent = `frame ${f} / ${current.frames - 1} · ${(f / current.fps).toFixed(2)} s`;
+    drawCursors(f);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ---------- plots ----------
+let plotPanels = [];
+function buildPlots() {
+  const box = $("plots"); box.innerHTML = ""; plotPanels = [];
+  joints.names.forEach((name, j) => {
+    const p = document.createElement("div"); p.className = "plot" + (name === "gripper" ? " gripper" : "");
+    p.innerHTML = `<div class="pname"><span>${name}</span><span class="val"></span></div><div class="stack"><canvas></canvas><canvas></canvas></div>`;
+    box.appendChild(p);
+    const [base, over] = p.querySelectorAll("canvas");
+    over.addEventListener("click", (ev) => {
+      const r = over.getBoundingClientRect();
+      seekFrame(Math.round(((ev.clientX - r.left) / r.width) * (current.frames - 1)));
+    });
+    plotPanels.push({ j, base, over, val: p.querySelector(".val") });
+  });
+  drawPlots();
+}
+
+function sizeCanvas(c) {
+  const dpr = window.devicePixelRatio || 1, r = c.getBoundingClientRect();
+  c.width = Math.max(1, Math.round(r.width * dpr)); c.height = Math.max(1, Math.round(r.height * dpr));
+  const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return [ctx, r.width, r.height];
+}
+
+function drawPlots() {
+  if (!joints) return;
+  for (const p of plotPanels) {
+    const s = joints.state[p.j], a = joints.action[p.j], n = s.length;
+    let lo = Math.min(...s, ...a), hi = Math.max(...s, ...a);
+    if (hi - lo < 1) { hi += 0.5; lo -= 0.5; }
+    const padY = (hi - lo) * 0.08; lo -= padY; hi += padY;
+    p.range = [lo, hi];
+    const [ctx, w, h] = sizeCanvas(p.base);
+    sizeCanvas(p.over);
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = css("--muted"); ctx.font = "10px system-ui";
+    ctx.fillText(hi.toFixed(0), 2, 10); ctx.fillText(lo.toFixed(0), 2, h - 3);
+    const line = (vals, color, dash) => {
+      ctx.beginPath(); ctx.setLineDash(dash); ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+      vals.forEach((v, i) => { const x = (i / Math.max(n - 1, 1)) * w, y = h - ((v - lo) / (hi - lo)) * h; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke(); ctx.setLineDash([]);
+    };
+    line(s, css("--state"), []);
+    line(a, css("--action"), [5, 3]);
+  }
+  drawCursors(Number($("slider").value), true);
+}
+
+let lastCursor = -1;
+function drawCursors(f, force = false) {
+  if (!joints || (!force && f === lastCursor)) return;
+  lastCursor = f;
+  for (const p of plotPanels) {
+    const ctx = p.over.getContext("2d"), r = p.over.getBoundingClientRect(), n = joints.state[p.j].length;
+    ctx.clearRect(0, 0, r.width, r.height);
+    const x = (f / Math.max(n - 1, 1)) * r.width;
+    ctx.strokeStyle = css("--cursor"); ctx.globalAlpha = 0.6; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, r.height); ctx.stroke(); ctx.globalAlpha = 1;
+    const fi = Math.min(f, n - 1);
+    p.val.textContent = `state ${joints.state[p.j][fi].toFixed(1)} · action ${joints.action[p.j][fi].toFixed(1)}`;
+  }
+}
+
+// ---------- actions ----------
+function neighbour(step) {
+  const rows = visibleEpisodes().filter((e) => e.status === "ok");
+  const i = rows.findIndex((e) => current && e.name === current.name);
+  return rows[i + step] || null;
+}
+async function toggleFlag() {
+  if (!current) return;
+  await api("/api/flag", { name: current.name, flagged: !current.flagged });
+  await refresh();
+}
+async function deleteEpisodes(names, label) {
+  if (!names.length || !confirm(`Move ${label} to the trash?\nYou can restore it from the Trash button.`)) return;
+  const next = names.includes(current?.name) ? (neighbour(1) || neighbour(-1)) : current;
+  const res = await api("/api/delete", { names });
+  toast(`Moved ${res.moved.length} episode(s) to the trash`);
+  await refresh();
+  if (next && data.episodes.some((e) => e.name === next.name && !names.includes(next.name))) select(next.name);
+}
+
+function renderTrash() {
+  const p = $("trashPanel");
+  const rows = data.trash.map((t) => `<div class="trow"><span>${t.name} <span class="chip">${t.size_mb} MB</span></span><button data-r="${t.name}">Restore</button></div>`).join("");
+  p.innerHTML = `<b>Trash</b> <span class="chip">(${data.trash.length})</span>` +
+    (data.trash.length ? `<div style="margin:8px 0">${rows}</div><button class="danger" id="emptyTrashBtn">Delete all permanently</button>`
+                       : `<p class="chip">Empty. Deleted episodes appear here and can be restored.</p>`);
+  p.querySelectorAll("[data-r]").forEach((b) => b.onclick = async () => {
+    const res = await api("/api/restore", { names: [b.dataset.r] });
+    toast(res.skipped.length ? `${res.skipped[0]} already exists in the folder (the number was reused), so it stays in the trash` : `Restored ${res.restored[0]}`);
+    await refresh();
+  });
+  const empty = $("emptyTrashBtn");
+  if (empty) empty.onclick = async () => {
+    if (!confirm(`Permanently delete ${data.trash.length} episode(s)? This cannot be undone.`)) return;
+    const res = await api("/api/empty_trash", {}); toast(`Deleted ${res.removed} file(s) permanently`); await refresh();
+  };
+}
+
+// ---------- wiring ----------
+$("playBtn").onclick = togglePlay;
+$("slider").oninput = (e) => seekFrame(Number(e.target.value));
+$("speed").onchange = (e) => { for (const v of videos) v.playbackRate = Number(e.target.value); };
+$("camMode").onchange = (e) => { camMode = e.target.value; localSet("camMode", camMode); const f = Number($("slider").value); buildVideos(); videos[0].addEventListener("loadeddata", () => seekFrame(f), { once: true }); };
+$("prevBtn").onclick = () => { const e = neighbour(-1); if (e) select(e.name); };
+$("nextBtn").onclick = () => { const e = neighbour(1); if (e) select(e.name); };
+$("flagBtn").onclick = toggleFlag;
+$("deleteBtn").onclick = () => current && deleteEpisodes([current.name], current.name);
+$("deleteFlaggedBtn").onclick = () => { const names = data.episodes.filter((e) => e.flagged).map((e) => e.name); deleteEpisodes(names, `${names.length} flagged episode(s)`); };
+$("trashBtn").onclick = () => { const p = $("trashPanel"); p.style.display = p.style.display === "block" ? "none" : "block"; };
+for (const id of ["layoutFilter", "targetFilter", "sortBy", "flaggedOnly"]) $(id).onchange = () => { renderList(); if (!current || !visibleEpisodes().some((e) => e.name === current.name)) { const f = visibleEpisodes().find((e) => e.status === "ok"); f ? select(f.name) : showEmpty(); } };
+window.addEventListener("resize", () => drawPlots());
+document.addEventListener("keydown", (ev) => {
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName) && document.activeElement.type !== "range") return;
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const f = Number($("slider").value), step = ev.shiftKey ? 10 : 1;
+  const keys = {
+    " ": togglePlay,
+    ArrowLeft: () => seekFrame(f - step), ArrowRight: () => seekFrame(f + step),
+    ArrowUp: () => $("prevBtn").click(), ArrowDown: () => $("nextBtn").click(),
+    f: toggleFlag, F: toggleFlag, d: () => $("deleteBtn").click(), D: () => $("deleteBtn").click(), Delete: () => $("deleteBtn").click(),
+    1: () => setCam("external_D455"), 2: () => setCam("ego"), 3: () => setCam("both"),
+  };
+  if (keys[ev.key]) { ev.preventDefault(); keys[ev.key](); }
+});
+function setCam(mode) { const sel = $("camMode"); if ([...sel.options].some((o) => o.value === mode)) { sel.value = mode; sel.onchange({ target: sel }); } }
+
+refresh(false).catch((e) => toast("Could not load the episode list: " + e.message));
+setInterval(() => refresh().catch(() => {}), 5000);  // pick up new recordings while recording
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
