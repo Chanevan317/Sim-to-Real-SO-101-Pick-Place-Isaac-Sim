@@ -21,7 +21,8 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
 fi
 
 DATASET_ROOT="${DATASET_ROOT:-$SCRIPT_DIR/../lerobot_dataset}"
-REPO_ID="${REPO_ID:-local/so101_sim_test}"
+# Dataset name: only a label (LeRobot does not store it in the dataset), so it follows the folder name.
+REPO_ID="${REPO_ID:-local/$(basename "$DATASET_ROOT")}"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/../train/outputs/so101_groot}"
 # Batch size 8 peaks at ~13.6 GB with LOW_MEMORY=1 (tested on an RTX 4080 SUPER).
 BATCH_SIZE="${BATCH_SIZE:-8}"

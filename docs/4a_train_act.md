@@ -9,7 +9,7 @@ conda activate lerobot_env
 cd ~/Documents/chan_evan/Sim-to-Real-SO-101-Pick-Place-Isaac-Sim/lerobot
 
 lerobot-train \
-  --dataset.repo_id=local/so101_sim_test \
+  --dataset.repo_id=local/lerobot_dataset \
   --dataset.root=./lerobot_dataset \
   --policy.type=act \
   --policy.device=cuda \
@@ -26,7 +26,9 @@ lerobot-train \
 ```
 
 These are the same settings used for the earlier ACT model. If your dataset is somewhere else,
-change `--dataset.root` to its path.
+change `--dataset.root` to its path, and `--dataset.repo_id` to `local/<folder name>`. The name
+is only a label (it is saved in the training settings), but keeping it equal to the folder name
+tells you later which dataset a model was trained on.
 
 ## Main options
 

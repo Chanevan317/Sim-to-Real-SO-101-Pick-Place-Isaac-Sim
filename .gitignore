@@ -15,7 +15,7 @@
 # My data
 raw_teleop_*
 leader_calibration.json
-lerobot/lerobot_dataset
+lerobot/lerobot_dataset*
 lerobot/train
 
 ### Environments & Dependencies ###

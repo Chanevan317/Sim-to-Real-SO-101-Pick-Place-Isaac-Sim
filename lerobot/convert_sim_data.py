@@ -10,11 +10,16 @@ Expected input HDF5 schema (per episode file):
     observation.images.external_D455 shape=(T, 480, 640, 3) dtype=uint8
     observation.state                shape=(T, 6) dtype=float32
 
-Input path (relative to this script):
-    ../source/sim_to_real_so101/episode_xxxx.h5   (xxxx = 0000-9999)
+Input (--raw_dir): a folder of episode_xxxx.h5 files. A bare folder name such as
+raw_teleop_data_twocubes is looked up in source/sim_to_real_so101/, where teleop saves them.
+Default: raw_teleop_data.
 
-Output:
-    ./lerobot_dataset/   (LeRobotDataset saved locally next to this script)
+Output (--output_dir): the LeRobotDataset folder. A bare name goes into lerobot/. Default:
+lerobot/lerobot_dataset for raw_teleop_data, lerobot/lerobot_dataset_<suffix> for
+raw_teleop_data_<suffix> (for example lerobot_dataset_twocubes).
+
+Example:
+    python convert_sim_data.py --raw_dir raw_teleop_data_twocubes --output_dir lerobot_dataset_twocubes_v1
 """
 
 import argparse
@@ -25,8 +30,8 @@ import numpy as np
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_RAW_DIR = (SCRIPT_DIR / "../source/sim_to_real_so101/raw_teleop_data/").resolve()
-DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "lerobot_dataset"
+RECORDINGS_DIR = (SCRIPT_DIR / "../source/sim_to_real_so101").resolve()  # where teleop saves folders
+DEFAULT_RAW_DIR = RECORDINGS_DIR / "raw_teleop_data"
 
 STATE_DIM = 6
 ACTION_DIM = 6
@@ -73,11 +78,40 @@ def build_features():
     return features
 
 
+def resolve_raw_dir(raw_dir: Path) -> Path:
+    """Use raw_dir as given (relative to the current folder); a bare folder name such as
+    raw_teleop_data_twocubes is also looked up where teleop saves recordings."""
+    if raw_dir.is_dir():
+        return raw_dir.resolve()
+    if len(raw_dir.parts) == 1 and (RECORDINGS_DIR / raw_dir).is_dir():
+        return RECORDINGS_DIR / raw_dir
+    return raw_dir
+
+
+def default_output_dir(raw_dir: Path) -> Path:
+    """lerobot/lerobot_dataset for raw_teleop_data, lerobot/lerobot_dataset_<rest> for
+    raw_teleop_data_<rest>, lerobot/lerobot_dataset_<name> for any other folder."""
+    name = raw_dir.name
+    suffix = name.removeprefix("raw_teleop_data") if name.startswith("raw_teleop_data") else f"_{name}"
+    return SCRIPT_DIR / f"lerobot_dataset{suffix}"
+
+
+def resolve_output_dir(output_dir: Path | None, raw_dir: Path) -> Path:
+    """A bare folder name goes into lerobot/, wherever the command is run from."""
+    if output_dir is None:
+        return default_output_dir(raw_dir)
+    if len(output_dir.parts) == 1:
+        return SCRIPT_DIR / output_dir
+    return output_dir.resolve()
+
+
 def find_episode_files(raw_dir: Path):
     files = sorted(raw_dir.glob("episode_*.h5"))
     if not files:
+        folders = sorted(p.name for p in RECORDINGS_DIR.glob("raw_teleop_*") if p.is_dir())
         raise FileNotFoundError(
-            f"No files matching 'episode_*.h5' found in {raw_dir}"
+            f"No files matching 'episode_*.h5' found in {raw_dir}. "
+            f"Recording folders in {RECORDINGS_DIR}: {', '.join(folders) or 'none'}"
         )
     return files
 
@@ -191,12 +225,14 @@ def main():
              f"(default: {DEFAULT_RAW_DIR})",
     )
     parser.add_argument(
-        "--output_dir", type=Path, default=DEFAULT_OUTPUT_DIR,
-        help=f"Where to save the LeRobotDataset (default: {DEFAULT_OUTPUT_DIR})",
+        "--output_dir", type=Path, default=None,
+        help="Where to save the LeRobotDataset (default: lerobot/lerobot_dataset for raw_teleop_data, "
+             "lerobot/lerobot_dataset_<suffix> for raw_teleop_data_<suffix>). A bare name goes into lerobot/",
     )
     parser.add_argument(
-        "--repo_id", type=str, default="local/so101_sim_test",
-        help="Dataset repo_id (used as an identifier even for local-only saves)",
+        "--repo_id", type=str, default=None,
+        help="Dataset name (default: local/<output_dir folder name>). With --push_to_hub it must be "
+             "<your Hugging Face user>/<name>",
     )
     parser.add_argument("--task", type=str, default="pick up the cube and place it on the plate")
     parser.add_argument(
@@ -209,11 +245,19 @@ def main():
         help="Optional cap on number of episodes, useful for a quick test run",
     )
     args = parser.parse_args()
+    raw_dir = resolve_raw_dir(args.raw_dir)
+    args.output_dir = resolve_output_dir(args.output_dir, raw_dir)
+    # The name only labels the dataset (training configs, Hub uploads); LeRobot does not store it
+    # in the dataset files. Follow the folder name, so each dataset gets its own label.
+    repo_id = args.repo_id or f"local/{args.output_dir.resolve().name}"
+    if args.push_to_hub and repo_id.startswith("local/"):
+        parser.error("--push_to_hub needs --repo_id <your Hugging Face user>/<name>")
+    print(f"Dataset name (repo_id): {repo_id}")
 
     convert(
-        raw_dir=args.raw_dir,
+        raw_dir=raw_dir,
         output_dir=args.output_dir,
-        repo_id=args.repo_id,
+        repo_id=repo_id,
         task_description=args.task,
         fps=args.fps,
         push_to_hub=args.push_to_hub,
