@@ -59,6 +59,7 @@ import sim_to_real_so101.tasks  # noqa: F401
 from sim_to_real_so101.utils.joint_conversion import make_degree_converters
 from sim_to_real_so101.utils.policy_client import PolicyClient
 from sim_to_real_so101.utils.sim_keys import SimKeys
+from sim_to_real_so101.utils.viewport_label import ViewportLabel
 
 
 def instruction_for_current_episode(env, default_task):
@@ -118,7 +119,18 @@ def main():
     keys = SimKeys()
     print("[INFO]: Press N (Isaac Sim window must have focus) to skip a bad episode now, counted as a failure.")
 
+    # Episode number and (two-cube task) target cube in the top-right corner of the
+    # viewport, same overlay teleop_so101.py uses during recording.
+    label = ViewportLabel()
+
+    def update_episode_label(episode_number):
+        label.set_episode(episode_number)
+        color = getattr(env.unwrapped, "target_cube_color", None)
+        if color is not None:
+            label.set_target(f"TARGET: {color.upper()} cube", color)
+
     obs, _ = env.reset()
+    update_episode_label(1)
     episode_task = instruction_for_current_episode(env, args_cli.policy_task)
     if episode_task != args_cli.policy_task:
         print(f"[INFO]: This episode's target: {episode_task}")
@@ -198,6 +210,7 @@ def main():
                     break
 
                 obs, _ = env.reset()
+                update_episode_label(num_episodes + 1)
                 episode_task = instruction_for_current_episode(env, args_cli.policy_task)
                 if episode_task != args_cli.policy_task:
                     print(f"[INFO]: This episode's target: {episode_task}")
