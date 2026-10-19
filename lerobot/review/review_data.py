@@ -32,7 +32,8 @@ import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PAGE = SCRIPT_DIR / "review_data.html"
-DEFAULT_RAW_DIR = (SCRIPT_DIR / "../../source/sim_to_real_so101/raw_teleop_data").resolve()
+RECORDINGS_DIR = (SCRIPT_DIR / "../../source/sim_to_real_so101").resolve()  # where teleop saves folders
+DEFAULT_RAW_DIR = RECORDINGS_DIR / "raw_teleop_data"
 
 # Same order as the 6-D state/action vectors (see convert_sim_data.py).
 JOINT_NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
@@ -227,8 +228,19 @@ def ffmpeg_binary():
     raise RuntimeError("ffmpeg not found: run this in lerobot_env, or install ffmpeg")
 
 
+def recording_folders(extra=None):
+    """Every recording folder (raw_teleop_data, raw_teleop_data_<name>), plus --raw_dir if it is elsewhere."""
+    paths = sorted(p for p in RECORDINGS_DIR.glob("raw_teleop_data*") if p.is_dir())
+    if extra is not None and extra not in paths:
+        paths.append(extra)
+    return [{"name": p.name if p.parent == RECORDINGS_DIR else str(p), "path": str(p),
+             "episodes": len(list(p.glob("episode_*.h5")))} for p in paths]
+
+
 class Handler(BaseHTTPRequestHandler):
     library: Library = None
+    start_dir: Path = None  # --raw_dir
+    cache_dir: Path = None
 
     def log_message(self, fmt, *args):  # keep the terminal quiet; errors are printed separately
         pass
@@ -290,7 +302,8 @@ class Handler(BaseHTTPRequestHandler):
             if not parts:
                 self._file(PAGE, "text/html; charset=utf-8")
             elif parts == ["api", "episodes"]:
-                self._json({"raw_dir": str(lib.raw_dir), "episodes": lib.episodes(), "trash": lib.trash()})
+                self._json({"raw_dir": str(lib.raw_dir), "folders": recording_folders(self.start_dir),
+                            "episodes": lib.episodes(), "trash": lib.trash()})
             elif len(parts) == 3 and parts[:2] == ["api", "joints"]:
                 self._json(lib.joints(parts[2]))
             elif len(parts) == 3 and parts[0] == "video":
@@ -310,7 +323,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             action = urlparse(self.path).path.strip("/")
-            if action == "api/flag":
+            if action == "api/folder":  # switch to another recording folder from the list
+                allowed = {f["path"] for f in recording_folders(self.start_dir)}
+                if body.get("path") not in allowed:
+                    raise ValueError("not a recording folder")
+                Handler.library = Library(Path(body["path"]), self.cache_dir)
+                print(f"[INFO] reviewing {body['path']}", flush=True)
+                self._json({"ok": True})
+            elif action == "api/flag":
                 lib.set_flag(body["name"], bool(body["flagged"]))
                 self._json({"ok": True})
             elif action == "api/delete":
@@ -335,7 +355,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--raw_dir", type=Path, default=DEFAULT_RAW_DIR, help="Folder with episode_xxxx.h5 files")
+    parser.add_argument("--raw_dir", type=Path, default=DEFAULT_RAW_DIR,
+                        help="Folder to start with (any recording folder can be picked in the page)")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--cache_dir", type=Path, default=Path.home() / ".cache" / "so101_review",
                         help="Where the converted videos are kept")
@@ -345,7 +366,9 @@ def main():
     if not raw_dir.is_dir():
         raise SystemExit(f"{raw_dir} does not exist")
     ffmpeg_binary()
-    Handler.library = Library(raw_dir, args.cache_dir.expanduser())
+    Handler.start_dir = raw_dir
+    Handler.cache_dir = args.cache_dir.expanduser()
+    Handler.library = Library(raw_dir, Handler.cache_dir)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"Reviewing {raw_dir}\nOpen http://127.0.0.1:{args.port} in your browser. Ctrl+C to stop.", flush=True)
     try:

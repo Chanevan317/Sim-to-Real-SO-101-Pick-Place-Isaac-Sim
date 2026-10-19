@@ -5,63 +5,83 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Episode Review</title>
 <style>
+  /* Same look as SO-Arm Data Studio (studio/web/studio.css): flat, square corners, one accent colour. */
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #677085; --line: #dde1e8;
-    --accent: #2f6fdb; --accent-text: #ffffff; --danger: #c93a3a; --warn: #b7791f;
-    --red: #d63b3b; --blue: #2f6fdb; --state: #2f6fdb; --action: #e07b24; --cursor: #1d2330;
-    --row-hover: #eef2f8; --row-active: #dfe8f8;
+    --bg: #eef1f4; --panel: #ffffff; --text: #11161d; --muted: #5d6877; --line: #d5dbe3;
+    --accent: #0e7c6b; --accent-text: #ffffff; --accent-soft: #e2f3ef;
+    --danger: #c0262d; --warn: #b35c00; --red: #d7263d; --blue: #2459d6;
+    --state: #2459d6; --action: #e07612; --cursor: #11161d;
+    --row-hover: #f3f5f8; --top-bg: #11161d; --top-ink: #eef1f4; --top-muted: #9aa5b4;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --muted: #98a1b3; --line: #2e343f;
-      --accent: #5b8ff0; --accent-text: #0e1116; --danger: #ef6b6b; --warn: #e0a74a;
-      --red: #f06a6a; --blue: #6f9cf3; --state: #6f9cf3; --action: #f0a050; --cursor: #e6e9ef;
-      --row-hover: #252a33; --row-active: #2b3546;
+      --bg: #0d1117; --panel: #151b23; --text: #e6eaf0; --muted: #96a1b0; --line: #283240;
+      --accent: #23b39b; --accent-text: #06110f; --accent-soft: #10302b;
+      --danger: #f2626a; --warn: #f0a24a; --red: #f2596d; --blue: #6c95f5;
+      --state: #6c95f5; --action: #f29a45; --cursor: #e6eaf0; --row-hover: #1a222c;
     }
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-  button, select { font: inherit; color: inherit; }
-  button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
-  button:hover:not(:disabled) { border-color: var(--accent); }
+  * { box-sizing: border-box; border-radius: 0 !important; }
+  [hidden] { display: none !important; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  button, select, input { font: inherit; color: inherit; }
+  button { background: var(--panel); border: 1px solid var(--line); padding: 7px 14px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--text); }
   button:disabled { opacity: .45; cursor: default; }
-  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:focus-visible, select:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); border-color: var(--accent); }
   button.danger { color: var(--danger); border-color: var(--danger); }
   button.on { background: var(--warn); color: #fff; border-color: var(--warn); }
-  select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
-  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
-  header h1 { font-size: 16px; margin: 0 8px 0 0; }
-  .chip { color: var(--muted); white-space: nowrap; }
-  .chip b { color: var(--text); font-weight: 600; }
+  select { background: var(--panel); border: 1px solid var(--line); padding: 6px 8px; }
+  input[type=checkbox], input[type=range] { accent-color: var(--accent); }
+
+  /* top bar */
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 0 20px; min-height: 52px; background: var(--top-bg); color: var(--top-ink); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; font-weight: 700; letter-spacing: .02em; margin: 0 8px 0 0; display: flex; align-items: center; gap: 10px; }
+  header h1 .mark { width: 14px; height: 14px; background: var(--accent); display: inline-block; }
+  .chip { color: var(--top-muted); white-space: nowrap; font-size: 14px; }
+  .chip b { color: var(--top-ink); font-weight: 600; }
+  header button { background: transparent; color: var(--top-ink); border-color: #3a4554; padding: 6px 12px; }
+  header button:hover:not(:disabled) { border-color: var(--top-ink); }
+  header button.danger { color: #f2626a; border-color: #f2626a; }
+  header select { background: transparent; color: var(--top-ink); border-color: #3a4554; padding: 5px 8px; }
+  header select option { background: var(--panel); color: var(--text); }
   .spacer { flex: 1; }
-  main { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 56px); }
+
+  /* layout */
+  main { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 52px); }
   aside { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
-  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); }
-  .filters label { display: flex; align-items: center; gap: 6px; color: var(--muted); grid-column: span 2; }
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }
+  .filters label { display: flex; align-items: center; gap: 8px; color: var(--muted); grid-column: span 2; font-size: 14px; }
   #list { overflow-y: auto; flex: 1; }
-  .row { display: grid; grid-template-columns: 52px 1fr auto; gap: 6px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .row { display: grid; grid-template-columns: 52px 1fr auto; gap: 6px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
   .row:hover { background: var(--row-hover); }
-  .row.active { background: var(--row-active); }
+  .row.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
   .row.disabled { opacity: .5; cursor: default; }
   .row .num { font-variant-numeric: tabular-nums; font-weight: 600; }
-  .row .meta { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .flag { color: var(--warn); font-weight: 700; }
-  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: baseline; }
-  section.viewer { overflow-y: auto; padding: 14px 18px; min-width: 0; }
-  .title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 10px; }
+  .dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: baseline; }
+  section.viewer { overflow-y: auto; padding: 20px; min-width: 0; }
+  .title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 10px; }
   .title h2 { margin: 0; font-size: 18px; }
   .title .muted { color: var(--muted); }
+
+  /* player */
   .videos { display: grid; gap: 8px; grid-template-columns: 1fr; max-width: 980px; }
   .videos.both { grid-template-columns: 1fr 1fr; max-width: 1400px; }
-  .vbox { position: relative; background: #000; border-radius: 6px; overflow: hidden; aspect-ratio: 4 / 3; }
+  .vbox { position: relative; background: #000; overflow: hidden; aspect-ratio: 4 / 3; }
   .vbox video { width: 100%; height: 100%; display: block; }
-  .vbox .cap { position: absolute; left: 8px; top: 6px; color: #fff; background: rgba(0,0,0,.55); padding: 1px 7px; border-radius: 4px; font-size: 12px; }
-  .vbox .wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ddd; }
+  .vbox .cap { position: absolute; left: 0; top: 0; color: #fff; background: rgba(0, 0, 0, .6); padding: 2px 8px; font-size: 12px; }
+  .vbox .wait { position: absolute; inset: 0; display: grid; place-items: center; color: #ccc; }
   .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; max-width: 1400px; }
   .controls input[type=range] { flex: 1; min-width: 200px; }
-  .fcount { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 170px; }
-  .plots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; max-width: 1400px; }
-  .plot { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  .fcount { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 170px; font-size: 13px; }
+
+  /* plots */
+  .plots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-width: 1400px; }
+  .plot { background: var(--panel); border: 1px solid var(--line); padding: 6px 8px; }
   .plot.gripper { border-color: var(--action); }
   .plot .pname { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
   .plot .stack { position: relative; height: 110px; }
@@ -70,11 +90,14 @@
   .swatch { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--state); vertical-align: middle; margin: 0 4px 0 10px; }
   .swatch.dash { border-top: 2px dashed var(--action); }
   .help { color: var(--muted); font-size: 12px; margin-top: 14px; }
-  kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 11px; background: var(--panel); }
+  kbd { border: 1px solid var(--line); background: var(--bg); padding: 0 5px; font-size: 12px; font-family: inherit; }
   .empty { padding: 40px; color: var(--muted); }
-  #trashPanel { position: fixed; right: 16px; top: 64px; width: 340px; max-height: 70vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.25); padding: 12px; display: none; z-index: 5; }
-  #trashPanel .trow { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); }
-  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; display: none; z-index: 10; }
+
+  /* trash panel + toast */
+  #trashPanel { position: fixed; right: 16px; top: 60px; width: 360px; max-height: 70vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 30px rgba(0, 0, 0, .3); padding: 16px; display: none; z-index: 5; }
+  #trashPanel .trow { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  #trashPanel .chip { color: var(--muted); }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 18px; display: none; z-index: 10; }
   @media (max-width: 800px) {
     main { grid-template-columns: 1fr; height: auto; }
     aside { max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -84,7 +107,8 @@
 </head>
 <body>
 <header>
-  <h1>Episode review</h1>
+  <h1><span class="mark"></span>Episode review</h1>
+  <select id="folderSelect" title="Recording folder"></select>
   <span class="chip" id="countChip"></span>
   <span class="chip" id="minutesChip"></span>
   <span class="chip" id="targetChip"></span>
@@ -164,8 +188,24 @@ const pad = (n) => String(n).padStart(4, "0");
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 // ---------- list ----------
+function renderFolders() {
+  const sel = $("folderSelect");
+  if (document.activeElement === sel) return;  // do not rebuild the menu while it is open
+  sel.innerHTML = data.folders.map((f) => `<option value="${f.path}">${f.name} (${f.episodes})</option>`).join("");
+  sel.value = data.raw_dir;
+}
+$("folderSelect").onchange = async (e) => {
+  try {
+    await api("/api/folder", { path: e.target.value });
+    current = null;
+    player.clear();
+    await refresh(false);
+  } catch (err) { toast("Could not open that folder: " + err.message); }
+};
+
 async function refresh(keepSelection = true) {
   data = await api("/api/episodes");
+  renderFolders();
   renderSummary();
   renderLayoutFilter();
   renderList();

@@ -139,6 +139,8 @@ python review_data.py --raw_dir ../../source/sim_to_real_so101/raw_teleop_data_t
 
 Then open http://127.0.0.1:8000 in your browser.
 
+- **Top left:** the folder menu. It lists every recording folder (`raw_teleop_data` and each
+  SO-Arm Data Studio campaign `raw_teleop_data_<name>`) with its number of episodes; pick one to review it.
 - **Left:** all episodes, with filters for the layout and the target cube.
 - **Video:** the scene camera, the wrist camera, or both side by side.
 - **Plots:** the 6 joints. The solid line is where the joint was, the dashed line is what you
