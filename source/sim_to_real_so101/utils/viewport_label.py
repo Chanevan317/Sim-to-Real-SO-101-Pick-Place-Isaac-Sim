@@ -58,12 +58,13 @@ class ViewportLabel:
                 ui.Spacer()
         self._target_box.visible = False  # shown once a target is set (two-cube task)
 
-    def set_episode(self, index):
-        """Number of the episode being recorded, as in its file name (episode_0012.h5 -> 0012)."""
+    def set_episode(self, index, progress=None):
+        """Number of the episode being recorded, as in its file name (episode_0012.h5 -> 0012),
+        plus an optional round progress such as "3 of 25"."""
         if self._episode is None:
             return
         try:
-            self._episode.text = f"Episode {index:04d}"
+            self._episode.text = f"Episode {index:04d}" + (f" · {progress}" if progress else "")
         except Exception as e:
             print(f"[WARNING]: Could not update the viewport label ({e}).")
 

@@ -41,6 +41,7 @@ Testing needs **both at once**:
 | `lerobot/` | Data conversion, the ACT model server |
 | `lerobot/groot/` | GR00T training and the GR00T model server |
 | `lerobot/review/` | Web page to review the recordings before converting them |
+| `studio/` | SO-Arm Data Studio: desktop app for recording, review and conversion |
 | `docs/` | These guides |
 
 Inside `source/sim_to_real_so101/`:

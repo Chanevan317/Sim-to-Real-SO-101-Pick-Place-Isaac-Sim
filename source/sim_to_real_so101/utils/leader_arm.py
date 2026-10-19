@@ -42,12 +42,14 @@ class LeaderArm:
         if not self._port.setBaudRate(1000000):
             raise RuntimeError("Failed to change the baudrate to 1000000 bps.")
         self._last = np.zeros(len(JOINT_NAMES), dtype=np.float32)
+        self.last_read_ok = np.zeros(len(JOINT_NAMES), dtype=bool)  # did each motor answer the last read?
 
     def read_raw_deg(self):
         """Encoder angle of each motor in degrees (-180..180). A failed read keeps the last value."""
         for i in range(len(JOINT_NAMES)):
             pos, result, _ = self._packet.read2ByteTxRx(self._port, i + 1, ADDR_STS_PRESENT_POSITION)
-            if result == self._comm_success:
+            self.last_read_ok[i] = result == self._comm_success
+            if self.last_read_ok[i]:
                 self._last[i] = pos / 4096.0 * 360.0 - 180.0
         return self._last.copy()
 

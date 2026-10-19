@@ -1,5 +1,7 @@
 # Step 2: Record demos
 
+Tip: [SO-Arm Data Studio](2b_data_studio.md) does recording, review and conversion in one app, without a terminal.
+
 You move the real leader arm, and the robot in the simulator copies you. Each successful try is
 saved as one file.
 
@@ -39,7 +41,8 @@ Run it from this folder, so the recordings go where the next step expects them:
 
 1. Pick up the cube with the robot and put it on the plate.
 2. Keep it there for about **3 seconds**.
-3. The try is **saved automatically** as `episode_0000.h5`, `episode_0001.h5`, and so on.
+3. The try is **saved automatically** as `episode_0001.h5`, `episode_0002.h5`, and so on.
+   (Folders recorded before October 16, 2026 start at `episode_0000.h5`; new recordings just continue the numbers.)
 4. The scene resets with a new random look and new cube position, and you can do the next try.
 
 ## Two-cube task (teaching the model to pick the right one)
@@ -88,8 +91,8 @@ If you run the script again later, it keeps counting from the last file, so noth
 overwritten. You can also delete a bad `.h5` file by hand.
 
 Saving takes less than a second. The pictures are compressed afterwards in the background,
-while you record the next try. During that time the file is called `episode_0000.h5.tmp`, and
-it becomes `episode_0000.h5` when done. No recording is lost when you quit: files that are
+while you record the next try. During that time the file is called `episode_0001.h5.tmp`, and
+it becomes `episode_0001.h5` when done. No recording is lost when you quit: files that are
 being compressed finish in the background, and any `.tmp` files left over (after **Ctrl+C** or a
 crash) are compressed the next time you start the script. You can also compress them by hand:
 
@@ -174,6 +177,11 @@ script; older ones are skipped.
 | `--task` | (required) | Scene name. Use `Lerobot-So101-Teleop-Cubes-To-Plate-DR`, or `Lerobot-So101-Teleop-TwoCubes-To-Plate-DR` for the two-cube task |
 | `--leader_port` | `/dev/ttyACM0` | Port of the leader arm |
 | `--output_dir` | `./raw_teleop_data` | Where recordings are saved |
+| `--max_episodes` | no limit | Close after saving this many episodes (SO-Arm Data Studio uses it for rounds) |
+| `--no_auto_save` | off | Do not save when the cube rests on the plate; save only with **N** (SO-Arm Data Studio uses this, so the arm can return home first) |
+| `--viewport_only` | off | Hide the menus at start, like pressing **F7** (F7 or Esc shows them again) |
+| `--idle_timeout` | never | Close after this many seconds without leader-arm movement. The try in progress is dropped; saved episodes are kept |
+| `--operator` | none | Name of the person recording, stored in every episode |
 
 ## What is inside each file
 

@@ -21,6 +21,7 @@ Follow the guides in order:
 | 0 | [How the project works](docs/0_how_it_works.md) |
 | 1 | [Setup (do this once)](docs/1_setup.md) |
 | 2 | [Record demos](docs/2_record_demos.md) |
+| 2b | [SO-Arm Data Studio: record, review and convert in one app](docs/2b_data_studio.md) |
 | 3 | [Convert the recordings](docs/3_convert_dataset.md) |
 | 4a | [Train ACT](docs/4a_train_act.md) |
 | 4b | [Train GR00T](docs/4b_train_groot.md) |

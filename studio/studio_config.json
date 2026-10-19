@@ -1,0 +1,12 @@
+{
+  "task": "Lerobot-So101-Teleop-TwoCubes-To-Plate-DR",
+  "leader_port": "/dev/ttyACM0",
+  "isaaclab_env": "env_isaaclab",
+  "lerobot_env": "lerobot_env",
+  "port": 8770,
+  "round_sizes": [25, 50],
+  "default_target": 300,
+  "min_free_gpu_mb": 6000,
+  "min_free_disk_gb": 30,
+  "idle_timeout_s": 120
+}

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SO-Arm Data Studio</title>
+<link rel="icon" href="/static/icon.svg">
+<link rel="stylesheet" href="/static/studio.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="mark"></span>SO-Arm Data Studio</div>
+  <div class="who"><span id="who"></span><button class="link" id="switchBtn" hidden>Change campaign</button></div>
+</header>
+<nav class="steps" id="steps"></nav>
+
+<main>
+  <!-- 2. Campaign -->
+  <section class="page" id="page-campaign">
+    <div class="grid two">
+      <div class="card">
+        <h2>Continue a campaign</h2>
+        <p class="muted">A campaign is one recording folder with its goal. Pick yours, check the numbers, and open it.</p>
+        <div class="list" id="campaignList"></div>
+        <div id="campaignEdit" class="edit" hidden>
+          <h3 id="campaignEditTitle"></h3>
+          <label>Episodes needed <input id="editTarget" type="number" min="6" max="5000" step="1"></label>
+          <label>Episodes per round <select id="editRound"></select></label>
+          <button class="primary" id="openCampaignBtn">Open campaign</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>New campaign</h2>
+        <label>Name <input id="newName" type="text" placeholder="e.g. twocubes_v2" maxlength="40"></label>
+        <label>Episodes needed <input id="newTarget" type="number" min="6" max="5000" step="1"></label>
+        <label>Episodes per round <select id="newRound"></select></label>
+        <p class="muted small">Episodes are recorded in rounds; after each round you review them before recording more.</p>
+        <button class="primary" id="newCampaignBtn">Create campaign</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Check -->
+  <section class="page" id="page-check">
+    <div class="grid two">
+      <div class="card">
+        <h2>Computer</h2>
+        <div class="checks" id="checks"></div>
+        <button id="recheckBtn">Check again</button>
+      </div>
+      <div class="card">
+        <h2>Leader arm test</h2>
+        <p class="muted">Start the test, then move <b>every joint</b> of the leader arm a little, including the gripper.
+          Put the arm back in its home pose when all six are green.</p>
+        <div class="motors" id="motors"></div>
+        <div class="row">
+          <button id="motorStartBtn">Start test</button>
+          <span class="muted small" id="motorMsg"></span>
+        </div>
+      </div>
+    </div>
+    <div class="cta">
+      <div id="roundInfo" class="muted"></div>
+      <button class="primary big" id="startRoundBtn" disabled>Start recording</button>
+    </div>
+  </section>
+
+  <!-- 4. Record -->
+  <section class="page" id="page-record">
+    <div class="grid two wide-left">
+      <div class="card">
+        <div class="notice" id="simNotice">
+          <b>Ubuntu may say "Isaac Sim is not responding" while the simulator opens.</b>
+          This is normal: it is still loading. Click <b>Wait</b> (as many times as it appears), or simply leave it:
+          it goes away by itself. <b>Never click "Force Quit".</b>
+        </div>
+        <div class="status-line"><span class="state" id="recState"></span><span class="muted" id="recSub"></span></div>
+        <div class="big-count"><span id="recSaved">0</span><span class="of"> / <span id="recMax">0</span></span></div>
+        <div class="bar"><span id="recBar"></span></div>
+        <div class="kv" id="recNow"></div>
+        <div class="row">
+          <button class="primary big" id="readyStartBtn" hidden>Start round</button>
+          <button class="primary big" id="continueRoundBtn" hidden>Continue round</button>
+          <button id="stopRoundBtn">Pause round</button>
+          <button class="danger" id="dropRoundBtn" hidden>Drop round</button>
+          <span class="muted small" id="pauseHint">Closes the simulator. Saved episodes are kept; the try in progress is dropped. You can continue later.</span>
+        </div>
+        <pre class="log" id="recLog" hidden></pre>
+      </div>
+      <div class="card guide">
+        <h2>How to record</h2>
+        <figure class="home-pose">
+          <img src="/static/home_pose.jpg" alt="The arm in its home pose: folded down onto its base">
+          <figcaption><b>Home pose:</b> the arm folded down onto its base, like this. Every try starts and ends here.</figcaption>
+        </figure>
+        <ol>
+          <li><b>Start and end every try with the leader arm in its home pose.</b></li>
+          <li>Read the <b>TARGET</b> label in the simulator: move <b>only that cube</b>, leave the other one alone.</li>
+          <li><b>Close the gripper firmly</b> on the cube, all the way.</li>
+          <li>Put the cube <b>inside the plate</b>, <b>open the gripper</b>, then bring the arm <b>back to its home pose</b>.</li>
+          <li>Once the arm is back home, press <kbd>N</kbd> to save. Nothing is saved until you press <kbd>N</kbd>.</li>
+          <li>Press <kbd>X</kbd> to throw a try away if you drop the cube, touch the wrong cube, hit the plate or a wall, or pause for long.</li>
+          <li>Move smoothly, at a steady pace.</li>
+          <li>Click the simulator window first, so it receives <kbd>N</kbd> and <kbd>X</kbd>.</li>
+          <li>If Ubuntu says the simulator is <b>not responding</b> while it opens, click <b>Wait</b> or leave it. Never <b>Force Quit</b>.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. Review -->
+  <section class="page" id="page-review">
+    <div class="review">
+      <aside class="card flush">
+        <div class="tabs" id="reviewTabs"></div>
+        <div class="list" id="reviewList"></div>
+        <div class="finish">
+          <div class="muted small" id="reviewProgress"></div>
+          <button class="primary" id="finishReviewBtn" disabled>Finish review</button>
+        </div>
+      </aside>
+      <div class="viewer">
+        <div class="empty card" id="reviewEmpty">Nothing to review.</div>
+        <div id="reviewPlayer" hidden>
+          <div class="title-line">
+            <h2 id="epTitle"></h2>
+            <span class="target" id="epTarget"></span>
+            <span class="muted" id="epMeta"></span>
+          </div>
+          <div class="warnings" id="epWarnings"></div>
+          <div class="videos" id="videos"></div>
+          <div class="controls">
+            <button id="playBtn">Play</button>
+            <input type="range" id="slider" min="0" value="0">
+            <span class="fcount" id="frameLabel"></span>
+            <select id="speed" title="Speed">
+              <option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option>
+            </select>
+          </div>
+          <div class="decide">
+            <button class="approve" id="approveBtn">Approve <kbd>A</kbd></button>
+            <button class="flag" id="flagBtn">Flag as bad <kbd>F</kbd></button>
+            <span class="decision" id="epDecision"></span>
+          </div>
+          <div class="reasons" id="reasons" hidden>
+            <span class="muted small">Why?</span>
+          </div>
+          <details class="plots-wrap">
+            <summary>Joint plots</summary>
+            <div class="legend"><span class="swatch"></span>where the joint was <span class="swatch dash"></span>what was commanded</div>
+            <div class="plots" id="plots"></div>
+          </details>
+          <div class="help">
+            <kbd>Space</kbd> play · <kbd>←</kbd>/<kbd>→</kbd> frame · <kbd>↑</kbd>/<kbd>↓</kbd> episode ·
+            <kbd>A</kbd> approve · <kbd>F</kbd> flag
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. Convert -->
+  <section class="page" id="page-convert">
+    <div class="grid two">
+      <div class="card">
+        <h2>Dataset</h2>
+        <div class="kv" id="convSummary"></div>
+        <h3>Balance</h3>
+        <table class="balance" id="balance"></table>
+      </div>
+      <div class="card">
+        <h2>Convert</h2>
+        <p class="muted">Turns the approved episodes into a LeRobot dataset for training. It takes about 20 seconds per episode;
+          you can close this window meanwhile.</p>
+        <label>Dataset folder (in <code>lerobot/</code>) <input id="datasetName" type="text"></label>
+        <button class="primary big" id="convertBtn">Convert</button>
+        <div id="convProgress" hidden>
+          <div class="status-line"><span class="state" id="convState"></span><span class="muted" id="convSub"></span></div>
+          <div class="bar"><span id="convBar"></span></div>
+          <pre class="log" id="convLog"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Train -->
+  <section class="page" id="page-train">
+    <div class="card narrow locked-card">
+      <h2>Train</h2>
+      <p>Sending the dataset to the training computer and starting the training will be added here.</p>
+      <p class="muted">Not active yet: for now, copy the dataset folder to the training computer and start training there.</p>
+    </div>
+  </section>
+</main>
+
+<div class="modal-back" id="dropModal" hidden>
+  <div class="modal">
+    <h2>Drop this round?</h2>
+    <p id="dropText"></p>
+    <div class="row">
+      <button class="primary" id="dropKeepBtn">Keep them for review</button>
+      <button class="danger" id="dropTrashBtn">Throw them away</button>
+      <button id="dropCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="/static/player.js"></script>
+<script src="/static/studio.js"></script>
+</body>
+</html>
