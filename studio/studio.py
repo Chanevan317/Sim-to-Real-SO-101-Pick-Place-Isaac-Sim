@@ -3,8 +3,8 @@ studio.py
 
 SO-Arm Data Studio: a local app that guides one person through collecting two-cube
 demonstrations: campaign (folder, target, round size), checks of the computer
-and the leader arm, recording rounds in Isaac Sim, reviewing every episode, and conversion to a
-LeRobot dataset. Start it with run_studio.sh or the desktop icon (install_desktop_icon.sh).
+and the leader arm, recording rounds in Isaac Sim, reviewing every episode, conversion to a
+LeRobot dataset, and sending the dataset to the training computer (SSH or croc). Start it with run_studio.sh or the desktop icon (install_desktop_icon.sh).
 
 The server runs in env_isaaclab (it reads the leader arm for the motor test). It starts
 teleop_so101.py for each round and convert_sim_data.py in lerobot_env. It listens on 127.0.0.1
@@ -36,6 +36,7 @@ LEROBOT_DIR = REPO_DIR / "lerobot"
 WEB_DIR = STUDIO_DIR / "web"
 
 from episodes import Episodes  # noqa: E402  (studio/episodes.py)
+import transfer  # noqa: E402  (studio/transfer.py)
 
 CONFIG = json.loads((STUDIO_DIR / "studio_config.json").read_text())
 STATE_FILE = Path.home() / ".config" / "so101_studio" / "state.json"  # active campaign
@@ -213,7 +214,7 @@ class MotorTest:
 # Jobs: one recording round (teleop) or one conversion, run as a child process
 # ---------------------------------------------------------------------------
 class Job:
-    def __init__(self, kind, cmd, cwd, on_exit=None, on_event=None):
+    def __init__(self, kind, cmd, cwd, on_exit=None, on_event=None, env=None):
         self.kind = kind
         self.status = "running"
         self.started = time.time()
@@ -225,7 +226,7 @@ class Job:
         self.info = {"phase": "starting"}
         self.on_exit = on_exit
         self.on_event = on_event
-        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        env = {**os.environ, "PYTHONUNBUFFERED": "1", **(env or {})}
         # Own process group, so Stop reaches teleop and its children but not this server.
         self.proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      text=True, bufsize=1, start_new_session=True)
@@ -286,6 +287,34 @@ class Job:
                 info.update(phase="done", done=info.get("total", 0))
             elif "Error" in line or line.startswith("Traceback"):
                 info["error"] = line.strip()
+        elif self.kind == "send":
+            if info.get("method") == "ssh":  # rsync --info=progress2: "  1,234,567  12%  10.5MB/s  0:01:23 ..."
+                m = re.match(r"\s*([\d,]+)\s+(\d+)%\s+(\S+/s)", line)
+                if m:
+                    info.update(phase="sending", percent=int(m.group(2)), speed=m.group(3))
+                elif line.startswith(("rsync error", "rsync:", "ssh:")):
+                    info["error"] = line.strip()
+            else:  # croc: "Sending (a->b)", then per file " name  45% |███| (3/30 MB, 4 MB/s) 1/12"
+                if line.startswith("Sending ("):
+                    info["phase"] = "sending"
+                m = re.search(r"(\d+)%\s*\|.*\|\s*\(([^)]*)\)(?:\s+(\d+)/(\d+))?", line)
+                if m:
+                    info["phase"] = "sending"
+                    speed = m.group(2).split(",")[-1].strip()
+                    if speed.endswith("/s"):
+                        info["speed"] = speed
+                    if m.group(3):  # a file finished: n of total
+                        info.update(files_done=int(m.group(3)), files=int(m.group(4)), file_percent=0)
+                    else:
+                        info["file_percent"] = int(m.group(1))
+                    files = info.get("files") or info.get("files_total")
+                    if files:
+                        info["percent"] = min(100, int(100 * (info.get("files_done", 0) + info.get("file_percent", 0) / 100) / files))
+                m = re.match(r"Sending (\d+) files?", line.strip())
+                if m and int(m.group(1)):
+                    info["files_total"] = int(m.group(1))
+                if "could not" in line.lower() or line.startswith("Error"):
+                    info["error"] = line.strip()
 
     def stop(self):
         """Ctrl+C for the round; force it if Isaac Sim does not close."""
@@ -329,6 +358,7 @@ class Studio:
         self.last_heartbeat = time.time()
         self.library = None
         self._open_library()
+        self.croc_install = None  # {"status": "running" | "done" | "failed", "message": ...}
 
     def _save_state(self):
         STATE_FILE.write_text(json.dumps(self.state, indent=1) + "\n")
@@ -342,7 +372,13 @@ class Studio:
             self.library = None
 
     def busy(self):
-        return any(j.proc.poll() is None for j in self.jobs.values())
+        """A round or a conversion is running (sending a dataset does not block recording)."""
+        return any(j.proc.poll() is None for kind, j in self.jobs.items() if kind in ("record", "convert"))
+
+    def working(self):
+        """Anything that must keep the server alive."""
+        return (any(j.proc.poll() is None for j in self.jobs.values())
+                or (self.croc_install or {}).get("status") == "running")
 
     # --- campaign ---
     def set_campaign(self, folder, target=None, round_size=None, new_name=None):
@@ -410,6 +446,7 @@ class Studio:
         counts = self.counts()
         record_job = self.jobs.get("record")
         convert_job = self.jobs.get("convert")
+        send_job = self.jobs.get("send")
         round_ = (campaign or {}).get("round")
         next_round = 0
         if round_:
@@ -431,6 +468,7 @@ class Studio:
             "dataset_exists": bool(dataset and dataset_taken(dataset)),
             "record": record_job.public() if record_job else None,
             "convert": convert_job.public() if convert_job else None,
+            "send": {**send_job.public(), **send_job.send} if send_job else None,
             "motor_test_passed": self.motor_test_passed_at is not None,
             "config": {k: CONFIG[k] for k in ("task", "leader_port", "round_sizes", "default_target")},
             "campaigns": list_campaigns(),
@@ -640,6 +678,93 @@ class Studio:
         self.jobs["convert"] = Job("convert", cmd, LEROBOT_DIR, on_exit)
         log_event(folder, "conversion_started", dataset=name, episodes=counts["approved"])
 
+    # --- send ---
+    def _dataset(self):
+        folder = self.state.get("folder")
+        name = (load_campaign(folder) or {}).get("dataset") if folder else None
+        convert_job = self.jobs.get("convert")
+        if not name or not dataset_taken(name) or (convert_job and convert_job.proc.poll() is None):
+            raise ValueError("Convert the campaign first: there is no dataset to send yet.")
+        return folder, name, LEROBOT_DIR / name
+
+    def transfer_info(self):
+        """Slower facts for the Send page: the dataset's size, croc, the last SSH target."""
+        settings = CONFIG.get("transfer", {})
+        info = {"croc": {"path": transfer.croc_path(), "version": transfer.croc_version(), "install": self.croc_install},
+                "ssh_host": self.state.get("ssh_host") or settings.get("ssh_host", ""),
+                "ssh_dir": self.state.get("ssh_dir") or settings.get("ssh_dir", ""), "dataset": None}
+        try:
+            _, name, path = self._dataset()
+            files, size = transfer.folder_size(path)
+            info["dataset"] = {"name": name, "files": files, "gb": round(size / 1e9, 2)}
+        except ValueError:
+            pass
+        return info
+
+    def _remember_target(self, host, remote_dir):
+        host, remote_dir = transfer.check_target(host, remote_dir)
+        self.state.update(ssh_host=host, ssh_dir=remote_dir)
+        self._save_state()
+        return host, remote_dir
+
+    def ssh_test(self, host, remote_dir):
+        _, name, _ = self._dataset()
+        host, remote_dir = self._remember_target(host, remote_dir)
+        return transfer.ssh_test(host, remote_dir, name)
+
+    def install_croc(self):
+        if (self.croc_install or {}).get("status") == "running":
+            return
+        self.croc_install = {"status": "running", "message": "Downloading croc…"}
+
+        def run():
+            try:
+                path = transfer.install_croc()
+                self.croc_install = {"status": "done", "message": f"croc {transfer.croc_version(path)} installed in {path}."}
+            except Exception as e:
+                self.croc_install = {"status": "failed", "message": str(e)}
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def start_send(self, method, host=None, remote_dir=None):
+        folder, name, path = self._dataset()
+        job = self.jobs.get("send")
+        if job and job.proc.poll() is None:
+            raise ValueError("A dataset is already being sent: wait, or cancel it first.")
+        relay = CONFIG.get("transfer", {}).get("croc_relay") or None
+        if method == "ssh":
+            host, remote_dir = self._remember_target(host, remote_dir)
+            if not shutil.which("rsync"):
+                raise ValueError("rsync is not installed on this computer: ask the admin (sudo apt install rsync).")
+            cmd, env = transfer.rsync_cmd(path, host, remote_dir), None
+            send = {"method": "ssh", "dataset": name, "target": f"{host}:{remote_dir}/{name}"}
+        elif method == "croc":
+            croc = transfer.croc_path()
+            if not croc:
+                raise ValueError("croc is not installed yet: press Install croc first.")
+            code = transfer.new_croc_code()
+            cmd, env = transfer.croc_send_cmd(croc, name, relay), {"CROC_SECRET": code}
+            send = {"method": "croc", "dataset": name, "code": code, "receive": transfer.croc_receive_cmd(code, relay)}
+        else:
+            raise ValueError("Choose SSH or croc.")
+
+        def on_exit(job):
+            log_event(folder, "dataset_sent" if job.status == "finished" else "sending_stopped",
+                      dataset=name, method=method, status=job.status, returncode=job.returncode,
+                      **({"target": send["target"]} if method == "ssh" else {}))
+
+        job = Job("send", cmd, LEROBOT_DIR, on_exit, env=env)
+        job.info.update(method=method, phase="connecting" if method == "ssh" else "waiting")
+        job.send = send
+        self.jobs["send"] = job
+        log_event(folder, "sending_started", dataset=name, method=method,
+                  **({"target": send["target"]} if method == "ssh" else {}))
+
+    def cancel_send(self):
+        job = self.jobs.get("send")
+        if job:
+            job.stop()
+
 
 STUDIO = None
 
@@ -719,6 +844,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                 return self._json({"checks": STUDIO.checks()})
             if path == "api/motors":
                 return self._json(STUDIO.motor_test.status())
+            if path == "api/transfer":
+                return self._json(STUDIO.transfer_info())
             if path == "api/ping":
                 return self._json({"ok": True})
             library = STUDIO.library
@@ -749,6 +876,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                     return self._error(HTTPStatus.CONFLICT, "Choose a campaign first.")
                 STUDIO.library.decide(body["name"], body["decision"], body.get("reason", ""))
                 return self._json({"ok": True})
+            if path == "api/transfer/ssh_test":  # can take up to 30 s: not under the app lock
+                return self._json(STUDIO.ssh_test(body.get("host"), body.get("dir")))
             with STUDIO.lock:
                 if path == "api/heartbeat":
                     STUDIO.last_heartbeat = time.time()
@@ -777,6 +906,12 @@ class StudioHandler(BaseHTTPRequestHandler):
                     return self._json({"moved": STUDIO.finish_review()})
                 elif path == "api/convert/start":
                     STUDIO.start_convert(body.get("name"))
+                elif path == "api/transfer/send":
+                    STUDIO.start_send(body.get("method"), body.get("host"), body.get("dir"))
+                elif path == "api/transfer/cancel":
+                    STUDIO.cancel_send()
+                elif path == "api/transfer/install_croc":
+                    STUDIO.install_croc()
                 else:
                     return self._error(HTTPStatus.NOT_FOUND, "not found")
             self._json({"ok": True})
@@ -792,7 +927,7 @@ def watchdog(server):
     while True:
         time.sleep(15)
         idle = time.time() - STUDIO.last_heartbeat
-        if idle > IDLE_EXIT_S and not STUDIO.busy() and not STUDIO.motor_test.running:
+        if idle > IDLE_EXIT_S and not STUDIO.working() and not STUDIO.motor_test.running:
             print("[INFO] No window open for a while: stopping Data Studio.", flush=True)
             server.shutdown()
             return

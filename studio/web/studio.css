@@ -52,7 +52,7 @@ button.link { background: none; border: 0; color: var(--top-ink); text-decoratio
 .profiles { display: grid; gap: 8px; margin-bottom: 8px; }
 .profiles button { text-align: left; padding: 12px 14px; font-size: 16px; display: flex; justify-content: space-between; }
 .profiles button:hover { border-color: var(--accent); }
-.steps { display: grid; grid-template-columns: repeat(6, 1fr); background: var(--panel); border-bottom: 1px solid var(--line); }
+.steps { display: grid; grid-template-columns: repeat(7, 1fr); background: var(--panel); border-bottom: 1px solid var(--line); }
 .step { padding: 10px 14px; border: 0; border-right: 1px solid var(--line); background: none; text-align: left; display: flex; gap: 10px; align-items: center; min-width: 0; }
 .step:last-child { border-right: 0; }
 .step .n { width: 24px; height: 24px; flex: none; display: grid; place-items: center; font-size: 13px; font-weight: 700; border: 1px solid var(--line); }
@@ -182,6 +182,19 @@ main { padding: 20px; max-width: 1500px; margin: 0 auto; }
 .balance th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .locked-card { color: var(--muted); }
 #convProgress { margin-top: 18px; }
+#toSendBtn { margin-top: 14px; }
+
+/* send */
+.tabs.two-tabs { grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-bottom: 0; margin: 12px 0 16px; }
+.method { margin-top: 4px; }
+#crocStatus { grid-template-columns: 22px 1fr; margin-bottom: 14px; }
+.code-box { margin: 6px 0 16px; }
+.code-box ol { margin: 0 0 10px; padding-left: 22px; }
+.code-box li { margin-bottom: 6px; }
+.secret { display: flex; align-items: stretch; border: 2px solid var(--accent); background: var(--accent-soft); margin-bottom: 10px; }
+.secret code { flex: 1; padding: 12px 14px; font-size: 16px; font-weight: 600; word-break: break-all; }
+.ok-text { color: var(--ok); } .bad-text { color: var(--danger); }
+.secret button { border: 0; border-left: 2px solid var(--accent); }
 
 .notice { background: var(--warn-soft); border: 1px solid var(--warn); border-left: 6px solid var(--warn); padding: 14px 16px; margin-bottom: 18px; font-size: 15px; }
 .notice b { color: var(--warn); }

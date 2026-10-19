@@ -2,7 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const STEPS = [
   ["campaign", "Campaign"], ["check", "Check"], ["record", "Record"],
-  ["review", "Review"], ["convert", "Convert"], ["train", "Train"],
+  ["review", "Review"], ["convert", "Convert"], ["send", "Send"], ["train", "Train"],
 ];
 const REASONS = ["Dropped the cube", "Wrong cube", "No release before saving", "Cube not on the plate",
   "Hit the plate or a wall", "Long pause or hesitation", "Other"];
@@ -18,6 +18,9 @@ let selectedCampaign = null;
 let motorTimer = null;
 let prevRecordRunning = false;
 let prevConvertRunning = false;
+let prevSendRunning = false;
+let sendMethod = "ssh";     // chosen tab on the Send page
+let transferInfo = null;   // /api/transfer: dataset size, croc, last SSH target
 
 const player = new EpisodePlayer({
   videos: $("videos"), slider: $("slider"), frameLabel: $("frameLabel"), playBtn: $("playBtn"),
@@ -49,6 +52,8 @@ function canStartRound() {
 const lastEvent = () => (S && S.history && S.history.length ? S.history[S.history.length - 1].event : null);
 const recordRunning = () => !!(S && S.record && S.record.status === "running");
 const convertRunning = () => !!(S && S.convert && S.convert.status === "running");
+const sendRunning = () => !!(S && S.send && S.send.status === "running");
+const hasDataset = () => !!(S && S.campaign && S.campaign.dataset && S.dataset_exists && !convertRunning());
 function kv(rows) { return rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join(""); }
 
 // ---------- steps ----------
@@ -61,7 +66,8 @@ function stepInfo(id) {
     case "check": return { open: !!ready, done: S.motor_test_passed };
     case "record": return { open: !!ready, done: false };
     case "review": return { open: !!(ready && c.episodes), done: !!(ready && c.episodes && !c.pending && !c.flagged), badge: c && c.pending };
-    case "convert": return { open: !!(ready && c.approved >= camp.target && !c.pending && !c.flagged), done: !!(S.convert && S.convert.info.phase === "done") };
+    case "convert": return { open: !!(ready && c.approved >= camp.target && !c.pending && !c.flagged), done: hasDataset() };
+    case "send": return { open: !!ready && (hasDataset() || sendRunning()), done: !!(S.send && S.send.status === "finished") };
     default: return { open: false, done: false };
   }
 }
@@ -100,6 +106,7 @@ function autoPage() {
   if (!confirmed || !S.folder || !camp) return "campaign";
   if (recordRunning() || S.round) return "record";
   if (convertRunning()) return "convert";
+  if (sendRunning()) return "send";
   if (c.pending || c.flagged) return "review";
   if (c.approved >= camp.target) return "convert";
   return "check";
@@ -128,11 +135,14 @@ async function refresh() {
     }
   }
   if (prevConvertRunning && !convertRunning()) toast(S.convert.status === "finished" ? "Conversion finished." : "Conversion stopped with an error.", 6000);
+  if (prevSendRunning && !sendRunning()) toast(S.send.status === "finished" ? "Dataset sent." : S.send.status === "stopped" ? "Sending cancelled." : "Sending failed.", 6000);
+  prevSendRunning = sendRunning();
   prevRecordRunning = recordRunning();
   prevConvertRunning = convertRunning();
   renderSteps();
   if (page === "record") renderRecord();
   if (page === "convert") renderConvert();
+  if (page === "send") renderSend();
   if (page === "check") renderRoundInfo();
 }
 
@@ -142,6 +152,7 @@ function enter(id) {
   if (id === "record") renderRecord();
   if (id === "review") loadEpisodes(true);
   if (id === "convert") enterConvert();
+  if (id === "send") enterSend();
 }
 
 $("switchBtn").onclick = () => go("campaign");
@@ -489,7 +500,9 @@ function renderConvert() {
     $("convLog").hidden = job.status !== "failed";  // the encoder output only matters when something went wrong
     $("convLog").textContent = job.log.join("\n");
   }
+  $("toSendBtn").hidden = !hasDataset();
 }
+$("toSendBtn").onclick = () => go("send");
 $("datasetName").oninput = () => renderConvert();
 $("convertBtn").onclick = async () => {
   try {
@@ -498,6 +511,93 @@ $("convertBtn").onclick = async () => {
     prevConvertRunning = true;
     renderConvert();
   } catch (e) { toast(e.message, 6000); }
+};
+
+// ---------- 7. send ----------
+async function loadTransferInfo() {
+  try { transferInfo = await api("/api/transfer"); } catch (e) { toast(e.message); return; }
+  renderSend();
+}
+async function enterSend() {
+  if (S.send) sendMethod = S.send.method;
+  transferInfo = null;
+  renderSend();
+  await loadTransferInfo();
+  if (!$("sshHost").value) $("sshHost").value = transferInfo ? transferInfo.ssh_host : "";
+  if (!$("sshDir").value) $("sshDir").value = transferInfo ? transferInfo.ssh_dir : "";
+}
+function renderSend() {
+  const t = transferInfo, job = S.send, running = sendRunning();
+  const ds = t && t.dataset;
+  $("sendSummary").innerHTML = kv([["Dataset", `lerobot/${esc((ds && ds.name) || (S.campaign && S.campaign.dataset) || "")}`],
+    ["Size", ds ? `${ds.gb} GB in ${ds.files} files` : "…"]]);
+  $("sendTabs").querySelectorAll("[data-m]").forEach((b) => { b.classList.toggle("on", b.dataset.m === sendMethod); b.disabled = running; });
+  $("method-ssh").hidden = sendMethod !== "ssh";
+  $("method-croc").hidden = sendMethod !== "croc";
+  ["sshHost", "sshDir", "sshTestBtn"].forEach((id) => ($(id).disabled = running));
+  $("sshSendBtn").disabled = running || !hasDataset();
+  const croc = t && t.croc, installing = croc && croc.install && croc.install.status === "running";
+  $("crocStatus").className = "check " + (croc ? (croc.path ? "ok" : "bad") : "");
+  $("crocStatus").innerHTML = !croc ? `<span class="ic">·</span><span>Looking for croc…</span>`
+    : croc.path ? `<span class="ic">✓</span><span>croc ${esc(croc.version || "")} is installed</span>`
+    : `<span class="ic">✕</span><span>croc is not installed on this computer</span>`;
+  $("crocInstallBtn").hidden = !croc || (!!croc.path && !installing);
+  $("crocInstallBtn").disabled = installing;
+  $("crocInstallBtn").textContent = installing ? "Installing…" : "Install croc";
+  $("crocMsg").textContent = croc && croc.install ? croc.install.message : "";
+  $("crocSendBtn").disabled = running || !hasDataset() || !(croc && croc.path);
+  if (installing) setTimeout(loadTransferInfo, 1500);
+
+  $("sendProgress").hidden = !job;
+  if (!job) return;
+  const info = job.info || {};
+  const waiting = running && info.phase === "waiting", connecting = running && info.phase === "connecting";
+  const states = { finished: ["Sent", "ok"], failed: ["Sending failed", "bad"], stopped: ["Cancelled", "warn"] };
+  const [title, cls] = running ? (waiting ? ["Waiting for the training computer…", "warn"] : connecting ? ["Connecting…", "warn"] : ["Sending", "warn"])
+    : states[job.status] || ["", ""];
+  $("sendState").textContent = title; $("sendState").className = "state " + cls;
+  const where = job.method === "ssh" ? `to ${job.target}` : "with croc";
+  $("sendSub").textContent = running ? (info.percent != null ? `${info.percent}%${info.speed ? " · " + info.speed : ""} · ${where}` : where)
+    : job.status === "finished" ? (job.method === "ssh" ? `Now in ${job.target}` : "The training computer has the dataset.")
+    : info.error || "";
+  $("sendBar").style.width = `${job.status === "finished" ? 100 : info.percent || 0}%`;
+  $("crocCode").hidden = !(job.method === "croc" && running);
+  if (job.method === "croc") { $("crocCmd").textContent = job.receive; $("crocSecret").textContent = job.code; }
+  $("cancelSendBtn").hidden = !running;
+  $("cancelSendBtn").disabled = job.stopping;
+  $("sendLog").hidden = job.status !== "failed";
+  $("sendLog").textContent = job.log.join("\n");
+}
+$("sendTabs").querySelectorAll("[data-m]").forEach((b) => (b.onclick = () => { sendMethod = b.dataset.m; renderSend(); }));
+$("sshTestBtn").onclick = async () => {
+  $("sshTestBtn").disabled = true;
+  $("sshMsg").className = "small muted"; $("sshMsg").textContent = "Connecting…";
+  try {
+    const r = await api("/api/transfer/ssh_test", { host: $("sshHost").value, dir: $("sshDir").value });
+    $("sshMsg").className = "small " + (r.ok ? "ok-text" : "bad-text"); $("sshMsg").textContent = r.message;
+  } catch (e) { $("sshMsg").className = "small bad-text"; $("sshMsg").textContent = e.message; }
+  $("sshTestBtn").disabled = false;
+};
+async function startSend(body) {
+  try {
+    await api("/api/transfer/send", body);
+    S = await api("/api/studio");
+    prevSendRunning = true;
+    renderSend();
+  } catch (e) { toast(e.message, 6000); }
+}
+$("sshSendBtn").onclick = () => startSend({ method: "ssh", host: $("sshHost").value, dir: $("sshDir").value });
+$("crocSendBtn").onclick = () => startSend({ method: "croc" });
+$("crocInstallBtn").onclick = async () => {
+  try { await api("/api/transfer/install_croc", {}); await loadTransferInfo(); } catch (e) { toast(e.message); }
+};
+$("cancelSendBtn").onclick = async () => {
+  if (!confirm("Cancel sending? You can send again later.")) return;
+  try { await api("/api/transfer/cancel", {}); } catch (e) { toast(e.message); }
+};
+$("copyCmdBtn").onclick = async () => {
+  try { await navigator.clipboard.writeText($("crocCmd").textContent); toast("Copied."); }
+  catch { toast("Select the text and copy it by hand."); }
 };
 
 // ---------- keys ----------

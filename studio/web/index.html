@@ -178,12 +178,68 @@
           <div class="status-line"><span class="state" id="convState"></span><span class="muted" id="convSub"></span></div>
           <div class="bar"><span id="convBar"></span></div>
           <pre class="log" id="convLog"></pre>
+          <button class="primary" id="toSendBtn" hidden>Send it to the training computer</button>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- 7. Train -->
+  <!-- 7. Send -->
+  <section class="page" id="page-send">
+    <div class="grid two">
+      <div class="card">
+        <h2>Dataset</h2>
+        <div class="kv" id="sendSummary"></div>
+        <div id="sendProgress" hidden>
+          <div class="status-line"><span class="state" id="sendState"></span><span class="muted" id="sendSub"></span></div>
+          <div class="bar"><span id="sendBar"></span></div>
+          <div id="crocCode" class="code-box" hidden>
+            <h3>On the training computer</h3>
+            <ol>
+              <li>Install croc once, if it is not there yet: <code>curl https://getcroc.schollz.com | bash</code></li>
+              <li>Open a terminal in the folder that should receive the dataset (for example the project's <code>lerobot</code> folder).</li>
+              <li>Type this and press Enter:</li>
+            </ol>
+            <div class="secret"><code id="crocCmd"></code><button id="copyCmdBtn">Copy</button></div>
+            <p class="muted small">Secret code: <b id="crocSecret"></b>. Share it only with the person receiving.
+              It works once; keep this window's transfer running until the other computer has everything.</p>
+          </div>
+          <div class="row">
+            <button class="danger" id="cancelSendBtn">Cancel</button>
+          </div>
+          <pre class="log" id="sendLog" hidden></pre>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Send to the training computer</h2>
+        <div class="tabs two-tabs" id="sendTabs">
+          <button data-m="ssh">SSH: same network</button><button data-m="croc">croc: any network</button>
+        </div>
+        <div class="method" id="method-ssh">
+          <p class="muted">For when this computer can reach the training computer directly, with password-free login set up by the admin.</p>
+          <label>Training computer (user@address) <input id="sshHost" type="text" placeholder="user@192.168.0.10"></label>
+          <label>Folder there that receives the dataset <input id="sshDir" type="text" placeholder="/home/user/project/lerobot"></label>
+          <div class="row">
+            <button id="sshTestBtn">Test connection</button>
+            <button class="primary" id="sshSendBtn">Send</button>
+          </div>
+          <p class="small" id="sshMsg"></p>
+        </div>
+        <div class="method" id="method-croc" hidden>
+          <p class="muted">For when the training computer is somewhere else. Both computers need internet. This app sends the
+            dataset and shows a secret code; the training computer receives it with that code. Everything is encrypted.</p>
+          <div class="check" id="crocStatus"></div>
+          <div class="row">
+            <button id="crocInstallBtn" hidden>Install croc</button>
+            <button class="primary" id="crocSendBtn">Send and show the code</button>
+          </div>
+          <p class="small muted" id="crocMsg"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8. Train -->
   <section class="page" id="page-train">
     <div class="card narrow locked-card">
       <h2>Train</h2>

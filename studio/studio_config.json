@@ -8,5 +8,6 @@
   "default_target": 300,
   "min_free_gpu_mb": 6000,
   "min_free_disk_gb": 30,
-  "idle_timeout_s": 120
+  "idle_timeout_s": 120,
+  "transfer": {"ssh_host": "", "ssh_dir": "", "croc_relay": ""}
 }
